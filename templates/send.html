@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}Send Email - Ken Research{% endblock %}
+{% block page_title %}Send Email{% endblock %}
+
+{% block content %}
+
+<div class="max-w-2xl">
+
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
+
+    <div class="px-8 py-5 border-b border-gray-100">
+      <h3 class="font-semibold text-gray-800 text-base">Compose &amp; Send</h3>
+      <p class="text-sm text-gray-400 mt-0.5">Fill in the details below. Tracking is added automatically.</p>
+    </div>
+
+    <form method="POST" action="{{ url_for('send_submit') }}" class="px-8 py-6 space-y-5">
+
+      <!-- Account -->
+      <div>
+        <label for="account" class="block text-sm font-medium text-gray-700 mb-1">
+          Sender Account <span class="text-red-500">*</span>
+        </label>
+        <select id="account" name="account" required
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                       bg-white shadow-sm appearance-none">
+          <option value="" disabled selected>Select a sender...</option>
+          {% for num, name in accounts.items() %}
+          <option value="{{ num }}">Account {{ num }} - {{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Recipient -->
+      <div>
+        <label for="recipient" class="block text-sm font-medium text-gray-700 mb-1">
+          To (Recipient Email) <span class="text-red-500">*</span>
+        </label>
+        <input id="recipient" name="recipient" type="email" required placeholder="recipient@example.com"
+               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                      placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                      focus:border-transparent shadow-sm" />
+      </div>
+
+      <!-- Campaign ID -->
+      <div>
+        <label for="campaign_id" class="block text-sm font-medium text-gray-700 mb-1">
+          Campaign ID
+          <span class="text-gray-400 font-normal">(optional - used for open tracking)</span>
+        </label>
+        <input id="campaign_id" name="campaign_id" type="text"
+               value="{{ suggested_campaign_id }}"
+               placeholder="{{ suggested_campaign_id }}"
+               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                      placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                      focus:border-transparent shadow-sm font-mono" />
+        <p class="text-xs text-gray-400 mt-1">Leave as-is to use the suggested ID, or enter your own.</p>
+      </div>
+
+      <!-- Subject -->
+      <div>
+        <label for="subject" class="block text-sm font-medium text-gray-700 mb-1">
+          Subject
+        </label>
+        <input id="subject" name="subject" type="text"
+               placeholder="Test Email - Ken Research Automation"
+               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                      placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                      focus:border-transparent shadow-sm" />
+        <p class="text-xs text-gray-400 mt-1">Leave blank for the default subject.</p>
+      </div>
+
+      <!-- Body -->
+      <div>
+        <label for="body" class="block text-sm font-medium text-gray-700 mb-1">
+          Message
+        </label>
+        <textarea id="body" name="body" rows="6"
+                  placeholder="Write your email message here (HTML is supported)..."
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                         placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                         focus:border-transparent shadow-sm resize-y font-mono"></textarea>
+        <p class="text-xs text-gray-400 mt-1">HTML formatting supported. Leave blank for a default test message.</p>
+      </div>
+
+      <!-- Tracker URL (hidden, advanced) -->
+      <input type="hidden" name="tracker_url" value="{{ tracker_url }}" />
+
+      <!-- Divider -->
+      <div class="border-t border-gray-100 pt-4">
+
+        <!-- Tracking note -->
+        <div class="flex items-start gap-2 text-xs text-gray-400 bg-gray-50 rounded-lg px-4 py-3 mb-4">
+          <svg class="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <span>
+            If you provide a Campaign ID, a tracking pixel will be embedded automatically.
+            Opens will appear in the Campaign Stats dashboard.
+          </span>
+        </div>
+
+        <!-- Submit -->
+        <button type="submit"
+                class="w-full inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700
+                       text-white font-semibold text-sm px-6 py-3 rounded-lg transition shadow-sm">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+          </svg>
+          Send Email
+        </button>
+
+      </div>
+    </form>
+
+  </div>
+
+  <!-- Account reference card -->
+  <div class="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-100">
+      <h4 class="text-sm font-semibold text-gray-700">Sender Accounts</h4>
+    </div>
+    <div class="divide-y divide-gray-100">
+      {% for num, name in accounts.items() %}
+      <div class="flex items-center justify-between px-6 py-3">
+        <div class="flex items-center gap-3">
+          <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100
+                       text-blue-700 text-xs font-bold flex-shrink-0">{{ num }}</span>
+          <span class="text-sm text-gray-700">{{ name }}</span>
+        </div>
+        <span class="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
+          <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
+          Ready
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
