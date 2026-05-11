@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: ken-email-tracker
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn email_tracker:app"
+    plan: free
+    envVars:
+      - key: PORT
+        value: 5000
