@@ -6,6 +6,10 @@ Unified Flask app combining email sending, tracking, and campaign dashboard.
 
 import sqlite3
 import os
+import csv
+import json
+import socket
+import threading
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -37,6 +41,105 @@ ACCOUNTS = {
     "3": "Sneha Malhotra",
     "4": "Tanushree Kalita",
 }
+
+def bulk_send_worker(campaign_id, account_num, recipients, subject, body, tracker_url, delay_seconds=10):
+    """Send emails to all recipients with a short delay between each. Runs in background thread."""
+    import time
+    campaign_folder = CAMPAIGNS_DIR / campaign_id
+
+    for i, recipient in enumerate(recipients):
+        try:
+            if i > 0:
+                time.sleep(delay_seconds)
+
+            result = send_email(
+                account_num=account_num,
+                recipient_email=recipient,
+                subject=subject,
+                body=body,
+                campaign_id=campaign_id,
+                step=1,
+                tracker_url=tracker_url,
+            )
+
+            # Update progress.json after each send
+            progress_path = campaign_folder / "progress.json"
+            if progress_path.exists():
+                with open(progress_path, encoding="utf-8") as f:
+                    progress = json.load(f)
+
+                for detail in progress["send_details"]:
+                    if detail["recipient"] == recipient and detail["status"] == "pending":
+                        if result:
+                            detail["status"] = "sent"
+                            detail["step"] = 1
+                            detail["sent_at"] = datetime.now().isoformat()
+                            progress["sent"] += 1
+                            progress["pending"] -= 1
+                        else:
+                            detail["status"] = "failed"
+                            progress["failed"] += 1
+                            progress["pending"] -= 1
+                        break
+
+                progress["last_update"] = datetime.now().isoformat()
+                with open(progress_path, "w", encoding="utf-8") as f:
+                    json.dump(progress, f, indent=2)
+
+            # Append to log
+            log_path = campaign_folder / "send_log.txt"
+            status = "SENT" if result else "FAILED"
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"[{status}] {recipient} at {datetime.now()}\n")
+
+        except Exception as e:
+            log_path = campaign_folder / "send_log.txt"
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"[ERROR] {recipient} at {datetime.now()}: {str(e)}\n")
+
+
+def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, subject, body):
+    """Create campaign folder structure for bulk send + scheduler"""
+    campaign_folder = CAMPAIGNS_DIR / campaign_id
+    campaign_folder.mkdir(parents=True, exist_ok=True)
+
+    brief = {
+        "campaign_id": campaign_id,
+        "name": campaign_name,
+        "account_number": account_num,
+        "account_name": ACCOUNTS[account_num],
+        "created_at": datetime.now().isoformat(),
+        "status": "active",
+        "total_recipients": len(recipients),
+        "email_sequences": [{"step": 1, "delay_days": 0, "delay_minutes": 0, "subject": subject, "body": body}]
+    }
+    with open(campaign_folder / "brief.json", "w", encoding="utf-8") as f:
+        json.dump(brief, f, indent=2)
+
+    with open(campaign_folder / "recipients.csv", "w", newline='', encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["email"])
+        for r in recipients:
+            writer.writerow([r])
+
+    progress = {
+        "campaign_id": campaign_id,
+        "total_recipients": len(recipients),
+        "sent": 0,
+        "pending": len(recipients),
+        "failed": 0,
+        "retry_queue": 0,
+        "last_update": datetime.now().isoformat(),
+        "current_step": 1,
+        "send_details": []
+    }
+    with open(campaign_folder / "progress.json", "w", encoding="utf-8") as f:
+        json.dump(progress, f, indent=2)
+
+    with open(campaign_folder / "send_log.txt", "w", encoding="utf-8") as f:
+        f.write(f"Campaign: {campaign_name}\nAccount: {ACCOUNTS[account_num]}\nRecipients: {len(recipients)}\nCreated: {datetime.now()}\n{'='*60}\n\n")
+
+    return campaign_id
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +242,7 @@ def get_dashboard_stats():
                     "status": brief.get("status", "active"),
                     "sent": sent,
                     "total_recipients": progress.get("total_recipients", 0),
+                    "pending": progress.get("pending", 0),
                     "opens": opens_for_campaign,
                     "open_rate": open_rate,
                     "last_open": next(
@@ -147,7 +251,9 @@ def get_dashboard_stats():
                     ),
                 })
 
-    total_opens = sum(r["open_count"] for r in campaign_rows)
+    # Only count opens for campaigns that exist in campaigns folder
+    existing_ids = {c["id"] for c in campaigns_info}
+    total_opens = sum(r["open_count"] for r in campaign_rows if r["campaign_id"] in existing_ids)
     avg_open_rate = (
         f"{total_opens / total_sent * 100:.1f}%"
         if total_sent > 0 else "—"
@@ -173,11 +279,25 @@ def dashboard():
     return render_template("dashboard.html", **stats)
 
 
+def get_tracker_url():
+    """Get tracker URL — env var takes priority, else auto-detect network IP."""
+    env_url = os.getenv("TRACKER_URL", "").strip()
+    if env_url:
+        return env_url
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return f"http://{ip}:5000"
+    except Exception:
+        return "http://localhost:5000"
+
+
 @app.route("/send", methods=["GET"])
 def send_form():
-    # Suggest a campaign ID based on current timestamp
     suggested_campaign_id = f"camp_{datetime.now().strftime('%Y%m%d_%H%M')}"
-    tracker_url = os.getenv("TRACKER_URL_DEVELOPMENT", "http://localhost:5000")
+    tracker_url = get_tracker_url()
     return render_template(
         "send.html",
         accounts=ACCOUNTS,
@@ -189,19 +309,21 @@ def send_form():
 @app.route("/send", methods=["POST"])
 def send_submit():
     account_num = request.form.get("account", "").strip()
-    recipient = request.form.get("recipient", "").strip()
+    recipients_raw = request.form.get("recipients", "").strip()
     subject = request.form.get("subject", "").strip() or "Test Email - Ken Research Automation"
     body = request.form.get("body", "").strip()
     campaign_id = request.form.get("campaign_id", "").strip() or None
     tracker_url = request.form.get("tracker_url", "http://localhost:5000").strip()
 
-    # Validation
     if not account_num or account_num not in ACCOUNTS:
         flash("Please select a valid account.", "error")
         return redirect(url_for("send_form"))
-    if not recipient:
-        flash("Recipient email is required.", "error")
+    if not recipients_raw:
+        flash("At least one recipient email is required.", "error")
         return redirect(url_for("send_form"))
+
+    # Parse recipients (one per line)
+    recipients = [r.strip() for r in recipients_raw.splitlines() if r.strip()]
 
     if not body:
         body = (
@@ -209,28 +331,45 @@ def send_submit():
             f"<p>Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"
         )
 
+    # SINGLE recipient — send immediately (existing behaviour)
+    if len(recipients) == 1:
+        try:
+            result = send_email(
+                account_num=account_num,
+                recipient_email=recipients[0],
+                subject=subject,
+                body=body,
+                campaign_id=campaign_id,
+                step=1,
+                tracker_url=tracker_url,
+            )
+            if result:
+                flash(f"Email sent successfully from {ACCOUNTS[account_num]} to {recipients[0]}.", "success")
+            else:
+                flash("Failed to send email. Check your credentials and try again.", "error")
+        except Exception as e:
+            flash(f"Error: {str(e)}", "error")
+        return redirect(url_for("send_form"))
+
+    # BULK recipients — create campaign + send in background thread (10 sec between each)
+    if not campaign_id:
+        campaign_id = f"camp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
     try:
-        result = send_email(
-            account_num=account_num,
-            recipient_email=recipient,
-            subject=subject,
-            body=body,
-            campaign_id=campaign_id,
-            step=1,
-            tracker_url=tracker_url,
+        create_bulk_campaign(campaign_id, subject, account_num, recipients, subject, body)
+        thread = threading.Thread(
+            target=bulk_send_worker,
+            args=(campaign_id, account_num, recipients, subject, body, tracker_url),
+            daemon=True
         )
-        if result:
-            flash(
-                f"Email sent successfully from {ACCOUNTS[account_num]} to {recipient}.",
-                "success",
-            )
-        else:
-            flash(
-                "Failed to send email. Check your credentials and try again.",
-                "error",
-            )
+        thread.start()
+        flash(
+            f"Bulk send started: {len(recipients)} emails from {ACCOUNTS[account_num]}. "
+            f"Sending now with 10 sec between each. Watch Campaign Stats for live progress.",
+            "success",
+        )
     except Exception as e:
-        flash(f"Error: {str(e)}", "error")
+        flash(f"Error starting bulk send: {str(e)}", "error")
 
     return redirect(url_for("send_form"))
 
@@ -336,6 +475,52 @@ def api_metrics(campaign_id):
         "pending": progress.get("pending", 0),
         "failed": progress.get("failed", 0),
     })
+
+
+@app.route("/resume/<campaign_id>", methods=["POST"])
+def resume_campaign(campaign_id):
+    """Resume a stalled campaign — resend to all pending recipients."""
+    try:
+        campaign_folder = CAMPAIGNS_DIR / campaign_id
+        if not campaign_folder.exists():
+            flash(f"Campaign '{campaign_id}' not found.", "error")
+            return redirect(url_for("dashboard"))
+
+        progress_path = campaign_folder / "progress.json"
+        brief_path = campaign_folder / "brief.json"
+        if not progress_path.exists() or not brief_path.exists():
+            flash("Campaign data missing.", "error")
+            return redirect(url_for("dashboard"))
+
+        with open(progress_path, encoding="utf-8") as f:
+            progress = json.load(f)
+        with open(brief_path, encoding="utf-8") as f:
+            brief = json.load(f)
+
+        pending_recipients = [
+            d["recipient"] for d in progress.get("send_details", [])
+            if d.get("status") == "pending"
+        ]
+
+        if not pending_recipients:
+            flash("No pending recipients found.", "error")
+            return redirect(url_for("dashboard"))
+
+        account_num = brief.get("account_number", "1")
+        subject = brief.get("email_sequences", [{}])[0].get("subject", "Ken Research")
+        body = brief.get("email_sequences", [{}])[0].get("body", "")
+        tracker_url = os.getenv("TRACKER_URL", "http://localhost:5000")
+
+        thread = threading.Thread(
+            target=bulk_send_worker,
+            args=(campaign_id, account_num, pending_recipients, subject, body, tracker_url),
+            daemon=True
+        )
+        thread.start()
+        flash(f"Resumed '{campaign_id}': sending {len(pending_recipients)} pending emails now.", "success")
+    except Exception as e:
+        flash(f"Error resuming: {str(e)}", "error")
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/health", methods=["GET"])

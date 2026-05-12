@@ -32,15 +32,19 @@
         </select>
       </div>
 
-      <!-- Recipient -->
+      <!-- Recipients -->
       <div>
-        <label for="recipient" class="block text-sm font-medium text-gray-700 mb-1">
-          To (Recipient Email) <span class="text-red-500">*</span>
+        <label for="recipients" class="block text-sm font-medium text-gray-700 mb-1">
+          To (Recipient Emails) <span class="text-red-500">*</span>
         </label>
-        <input id="recipient" name="recipient" type="email" required placeholder="recipient@example.com"
-               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
-                      placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
-                      focus:border-transparent shadow-sm" />
+        <textarea id="recipients" name="recipients" rows="4" required
+                  placeholder="one@example.com&#10;two@example.com&#10;three@example.com"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                         placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                         focus:border-transparent shadow-sm font-mono resize-y"></textarea>
+        <p class="text-xs text-gray-400 mt-1">
+          One email per line. Single recipient = sends immediately. Multiple = bulk send via scheduler (4-5 min between each).
+        </p>
       </div>
 
       <!-- Campaign ID -->
