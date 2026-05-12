@@ -42,15 +42,16 @@ ACCOUNTS = {
     "4": "Tanushree Kalita",
 }
 
-def bulk_send_worker(campaign_id, account_num, recipients, subject, body, tracker_url, delay_seconds=10):
-    """Send emails to all recipients with a short delay between each. Runs in background thread."""
-    import time
+def bulk_send_worker(campaign_id, account_num, recipients, subject, body, tracker_url, delay_seconds=None):
+    """Send emails to all recipients with random 4-5 min delay between each. Runs in background thread."""
+    import time, random
     campaign_folder = CAMPAIGNS_DIR / campaign_id
 
     for i, recipient in enumerate(recipients):
         try:
             if i > 0:
-                time.sleep(delay_seconds)
+                delay = delay_seconds if delay_seconds else random.uniform(240, 300)
+                time.sleep(delay)
 
             result = send_email(
                 account_num=account_num,
@@ -398,7 +399,7 @@ def send_submit():
         thread.start()
         flash(
             f"Bulk send started: {len(recipients)} emails from {ACCOUNTS[account_num]}. "
-            f"Sending now with 10 sec between each. Watch Campaign Stats for live progress.",
+            f"Random 4-5 min gap between each. Watch Campaign Stats for live progress.",
             "success",
         )
     except Exception as e:
