@@ -131,7 +131,17 @@ def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, su
         "retry_queue": 0,
         "last_update": datetime.now().isoformat(),
         "current_step": 1,
-        "send_details": []
+        "send_details": [
+            {
+                "recipient": r,
+                "step": 0,
+                "status": "pending",
+                "message_id": None,
+                "sent_at": None,
+                "retry_count": 0
+            }
+            for r in recipients
+        ]
     }
     with open(campaign_folder / "progress.json", "w", encoding="utf-8") as f:
         json.dump(progress, f, indent=2)
@@ -331,9 +341,12 @@ def send_submit():
             f"<p>Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"
         )
 
-    # SINGLE recipient — send immediately (existing behaviour)
+    # SINGLE recipient — send immediately + create campaign record for stats
     if len(recipients) == 1:
+        if not campaign_id:
+            campaign_id = f"camp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         try:
+            create_bulk_campaign(campaign_id, subject, account_num, recipients, subject, body)
             result = send_email(
                 account_num=account_num,
                 recipient_email=recipients[0],
@@ -343,8 +356,28 @@ def send_submit():
                 step=1,
                 tracker_url=tracker_url,
             )
+            # Update campaign progress
+            progress_path = CAMPAIGNS_DIR / campaign_id / "progress.json"
+            with open(progress_path, encoding="utf-8") as f:
+                progress = json.load(f)
+            for detail in progress["send_details"]:
+                if detail["recipient"] == recipients[0]:
+                    detail["status"] = "sent" if result else "failed"
+                    detail["step"] = 1
+                    detail["sent_at"] = datetime.now().isoformat()
+                    break
             if result:
-                flash(f"Email sent successfully from {ACCOUNTS[account_num]} to {recipients[0]}.", "success")
+                progress["sent"] = 1
+                progress["pending"] = 0
+            else:
+                progress["failed"] = 1
+                progress["pending"] = 0
+            progress["last_update"] = datetime.now().isoformat()
+            with open(progress_path, "w", encoding="utf-8") as f:
+                json.dump(progress, f, indent=2)
+
+            if result:
+                flash(f"Email sent from {ACCOUNTS[account_num]} to {recipients[0]}. Campaign '{campaign_id}' added to stats.", "success")
             else:
                 flash("Failed to send email. Check your credentials and try again.", "error")
         except Exception as e:
