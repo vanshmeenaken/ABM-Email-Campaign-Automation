@@ -582,9 +582,52 @@ def friendly_dt(value):
 # Startup
 # ---------------------------------------------------------------------------
 
+def auto_resume_pending_campaigns():
+    """On startup, find campaigns with pending recipients and resume them."""
+    if not CAMPAIGNS_DIR.exists():
+        return
+    resumed = 0
+    for folder in CAMPAIGNS_DIR.iterdir():
+        if not folder.is_dir():
+            continue
+        progress_path = folder / "progress.json"
+        brief_path = folder / "brief.json"
+        if not (progress_path.exists() and brief_path.exists()):
+            continue
+        try:
+            with open(progress_path, encoding="utf-8") as f:
+                progress = json.load(f)
+            with open(brief_path, encoding="utf-8") as f:
+                brief = json.load(f)
+
+            pending = [d["recipient"] for d in progress.get("send_details", []) if d.get("status") == "pending"]
+            if not pending:
+                continue
+
+            account_num = brief.get("account_number", "1")
+            seq = brief.get("email_sequences", [{}])[0]
+            subject = seq.get("subject", "Ken Research")
+            body = seq.get("body", "")
+            tracker_url = get_tracker_url()
+
+            thread = threading.Thread(
+                target=bulk_send_worker,
+                args=(folder.name, account_num, pending, subject, body, tracker_url),
+                daemon=True
+            )
+            thread.start()
+            resumed += 1
+            print(f"[AUTO-RESUME] {folder.name}: {len(pending)} pending recipients")
+        except Exception as e:
+            print(f"[AUTO-RESUME ERROR] {folder.name}: {e}")
+    if resumed:
+        print(f"[OK] Auto-resumed {resumed} campaign(s)")
+
+
 if __name__ == "__main__":
     init_db()
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "False").lower() == "true"
     print(f"[OK] Ken Research Email Campaign App running on http://localhost:{port}")
+    auto_resume_pending_campaigns()
     app.run(host="0.0.0.0", port=port, debug=debug)
