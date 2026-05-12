@@ -291,7 +291,11 @@ def dashboard():
 
 
 def get_tracker_url():
-    """Get tracker URL — env var takes priority, else auto-detect network IP."""
+    """Get tracker URL — Render URL > env var > network IP > localhost."""
+    # On Render, use the public service URL
+    render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip()
+    if render_url:
+        return render_url
     env_url = os.getenv("TRACKER_URL", "").strip()
     if env_url:
         return env_url
