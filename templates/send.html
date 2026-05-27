@@ -7,123 +7,208 @@
 
 <div class="max-w-2xl">
 
-  <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
+  <form method="POST" action="{{ url_for('send_submit') }}" class="space-y-5">
 
-    <div class="px-8 py-5 border-b border-gray-100">
-      <h3 class="font-semibold text-gray-800 text-base">Compose &amp; Send</h3>
-      <p class="text-sm text-gray-400 mt-0.5">Fill in the details below. Tracking is added automatically.</p>
-    </div>
-
-    <form method="POST" action="{{ url_for('send_submit') }}" class="px-8 py-6 space-y-5">
-
-      <!-- Account -->
-      <div>
-        <label for="account" class="block text-sm font-medium text-gray-700 mb-1">
-          Sender Account <span class="text-red-500">*</span>
-        </label>
-        <select id="account" name="account" required
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
-                       focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
-                       bg-white shadow-sm appearance-none">
-          <option value="" disabled selected>Select a sender...</option>
-          {% for num, name in accounts.items() %}
-          <option value="{{ num }}">Account {{ num }} - {{ name }}</option>
-          {% endfor %}
-        </select>
+    <!-- ── Campaign Setup ── -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
+      <div class="px-8 py-5 border-b border-gray-100">
+        <h3 class="font-semibold text-gray-800 text-base">Campaign Setup</h3>
+        <p class="text-sm text-gray-400 mt-0.5">Choose sender, recipients, and campaign ID.</p>
       </div>
+      <div class="px-8 py-6 space-y-5">
 
-      <!-- Recipients -->
-      <div>
-        <label for="recipients" class="block text-sm font-medium text-gray-700 mb-1">
-          To (Recipient Emails) <span class="text-red-500">*</span>
-        </label>
-        <textarea id="recipients" name="recipients" rows="4" required
-                  placeholder="one@example.com&#10;two@example.com&#10;three@example.com"
+        <!-- Account -->
+        <div>
+          <label for="account" class="block text-sm font-medium text-gray-700 mb-1">
+            Sender Account <span class="text-red-500">*</span>
+          </label>
+          <select id="account" name="account" required
                   class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
-                         placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
-                         focus:border-transparent shadow-sm font-mono resize-y"></textarea>
-        <p class="text-xs text-gray-400 mt-1">
-          One email per line. Single recipient = sends immediately. Multiple = bulk send via scheduler (4-5 min between each).
-        </p>
-      </div>
-
-      <!-- Campaign ID -->
-      <div>
-        <label for="campaign_id" class="block text-sm font-medium text-gray-700 mb-1">
-          Campaign ID
-          <span class="text-gray-400 font-normal">(optional - used for open tracking)</span>
-        </label>
-        <input id="campaign_id" name="campaign_id" type="text"
-               value="{{ suggested_campaign_id }}"
-               placeholder="{{ suggested_campaign_id }}"
-               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
-                      placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
-                      focus:border-transparent shadow-sm font-mono" />
-        <p class="text-xs text-gray-400 mt-1">Leave as-is to use the suggested ID, or enter your own.</p>
-      </div>
-
-      <!-- Subject -->
-      <div>
-        <label for="subject" class="block text-sm font-medium text-gray-700 mb-1">
-          Subject
-        </label>
-        <input id="subject" name="subject" type="text"
-               placeholder="Test Email - Ken Research Automation"
-               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
-                      placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
-                      focus:border-transparent shadow-sm" />
-        <p class="text-xs text-gray-400 mt-1">Leave blank for the default subject.</p>
-      </div>
-
-      <!-- Body -->
-      <div>
-        <label for="body" class="block text-sm font-medium text-gray-700 mb-1">
-          Message
-        </label>
-        <textarea id="body" name="body" rows="6"
-                  placeholder="Write your email message here (HTML is supported)..."
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
-                         placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
-                         focus:border-transparent shadow-sm resize-y font-mono"></textarea>
-        <p class="text-xs text-gray-400 mt-1">HTML formatting supported. Leave blank for a default test message.</p>
-      </div>
-
-      <!-- Tracker URL (hidden, advanced) -->
-      <input type="hidden" name="tracker_url" value="{{ tracker_url }}" />
-
-      <!-- Divider -->
-      <div class="border-t border-gray-100 pt-4">
-
-        <!-- Tracking note -->
-        <div class="flex items-start gap-2 text-xs text-gray-400 bg-gray-50 rounded-lg px-4 py-3 mb-4">
-          <svg class="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-          <span>
-            If you provide a Campaign ID, a tracking pixel will be embedded automatically.
-            Opens will appear in the Campaign Stats dashboard.
-          </span>
+                         focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                         bg-white shadow-sm appearance-none">
+            <option value="" disabled selected>Select a sender...</option>
+            {% for num, name in accounts.items() %}
+            <option value="{{ num }}">Account {{ num }} - {{ name }}</option>
+            {% endfor %}
+          </select>
         </div>
 
-        <!-- Submit -->
-        <button type="submit"
-                class="w-full inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700
-                       text-white font-semibold text-sm px-6 py-3 rounded-lg transition shadow-sm">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
-          </svg>
-          Send Email
-        </button>
+        <!-- Recipients -->
+        <div>
+          <label for="recipients" class="block text-sm font-medium text-gray-700 mb-1">
+            To (Recipients) <span class="text-red-500">*</span>
+          </label>
+          <textarea id="recipients" name="recipients" rows="4" required
+                    placeholder="Vansh, Acme Corp, vansh@example.com&#10;Sanya, sanya@example.com&#10;noreply@example.com"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                           placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                           focus:border-transparent shadow-sm font-mono resize-y"></textarea>
+          <p class="text-xs text-gray-400 mt-1">One per line. Format: <span class="font-mono">First Name, Company, email</span> — Company is optional. 4-5 min gap between sends.</p>
+        </div>
+
+        <!-- Campaign ID -->
+        <div>
+          <label for="campaign_id" class="block text-sm font-medium text-gray-700 mb-1">
+            Campaign ID
+            <span class="text-gray-400 font-normal">(for open tracking)</span>
+          </label>
+          <input id="campaign_id" name="campaign_id" type="text"
+                 value="{{ suggested_campaign_id }}"
+                 placeholder="{{ suggested_campaign_id }}"
+                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                        placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                        focus:border-transparent shadow-sm font-mono" />
+        </div>
 
       </div>
-    </form>
+    </div>
 
-  </div>
+    <!-- ── Step 1 ── -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
+      <div class="px-8 py-5 border-b border-gray-100 flex items-center gap-3">
+        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-bold flex-shrink-0">1</span>
+        <div>
+          <h3 class="font-semibold text-gray-800 text-base">Step 1 — Initial Outreach</h3>
+          <p class="text-xs text-gray-400 mt-0.5">Sends to all recipients immediately when you submit.</p>
+        </div>
+      </div>
+      <div class="px-8 py-6 space-y-4">
+        <div class="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">
+          Use <span class="font-mono font-semibold">{First Name}</span> or <span class="font-mono font-semibold">{Company}</span> in subject or body — replaced per recipient automatically.
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Subject <span class="text-red-500">*</span></label>
+          <input name="subject_1" type="text" required
+                 placeholder="e.g. Hey {First Name}, partnering with your team on Research"
+                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                        placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                        focus:border-transparent shadow-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Message Body</label>
+          <textarea name="body_1" rows="6"
+                    placeholder="Hi {First Name},&#10;&#10;Write your Step 1 email here. HTML is supported."
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                           placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                           focus:border-transparent shadow-sm resize-y font-mono"></textarea>
+        </div>
+      </div>
+    </div>
 
-  <!-- Account reference card -->
-  <div class="mt-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+    <!-- ── Step 2 ── -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
+      <div class="px-8 py-5 border-b border-gray-100 flex items-center gap-3">
+        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-200 text-gray-600 text-xs font-bold flex-shrink-0" id="step2-badge">2</span>
+        <div class="flex-1">
+          <div class="flex items-center gap-3">
+            <h3 class="font-semibold text-gray-800 text-base">Step 2 — Follow-up</h3>
+            <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+              <input type="checkbox" id="enable_step2" onchange="toggleStep(2)"
+                     class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+              Enable
+            </label>
+          </div>
+          <p class="text-xs text-gray-400 mt-0.5">Sent N days after Step 1 to the same recipients.</p>
+        </div>
+      </div>
+      <div id="step2_body" class="px-8 py-6 space-y-4 opacity-40 pointer-events-none">
+        <div class="flex items-center gap-3">
+          <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Send</label>
+          <input name="delay_days_2" type="number" min="1" max="30" value="2"
+                 class="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800
+                        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm text-center" />
+          <label class="text-sm text-gray-500">days after Step 1</label>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+          <input name="subject_2" type="text"
+                 placeholder="e.g. Following up on my previous note"
+                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                        placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                        focus:border-transparent shadow-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Message Body</label>
+          <textarea name="body_2" rows="6"
+                    placeholder="Write your Step 2 follow-up here."
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                           placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                           focus:border-transparent shadow-sm resize-y font-mono"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Step 3 ── -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm">
+      <div class="px-8 py-5 border-b border-gray-100 flex items-center gap-3">
+        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-200 text-gray-600 text-xs font-bold flex-shrink-0" id="step3-badge">3</span>
+        <div class="flex-1">
+          <div class="flex items-center gap-3">
+            <h3 class="font-semibold text-gray-800 text-base">Step 3 — Final Nudge</h3>
+            <label class="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none" id="step3-label">
+              <input type="checkbox" id="enable_step3" onchange="toggleStep(3)" disabled
+                     class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+              <span class="text-gray-400">Enable Step 2 first</span>
+            </label>
+          </div>
+          <p class="text-xs text-gray-400 mt-0.5">Sent N days after Step 2 to the same recipients.</p>
+        </div>
+      </div>
+      <div id="step3_body" class="px-8 py-6 space-y-4 opacity-40 pointer-events-none">
+        <div class="flex items-center gap-3">
+          <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Send</label>
+          <input name="delay_days_3" type="number" min="1" max="30" value="2"
+                 class="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800
+                        focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm text-center" />
+          <label class="text-sm text-gray-500">days after Step 2</label>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+          <input name="subject_3" type="text"
+                 placeholder="e.g. Last note from Ken Research"
+                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                        placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                        focus:border-transparent shadow-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Message Body</label>
+          <textarea name="body_3" rows="6"
+                    placeholder="Write your Step 3 final follow-up here."
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                           placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                           focus:border-transparent shadow-sm resize-y font-mono"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Submit ── -->
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm px-8 py-6">
+      <div class="flex items-start gap-2 text-xs text-gray-400 bg-gray-50 rounded-lg px-4 py-3 mb-4">
+        <svg class="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span>
+          Step 1 sends immediately. Steps 2 and 3 run automatically after their delay — keep the app open.
+          A tracking pixel is embedded for open-rate tracking.
+        </span>
+      </div>
+      <input type="hidden" name="tracker_url" value="{{ tracker_url }}" />
+      <button type="submit"
+              class="w-full inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700
+                     text-white font-semibold text-sm px-6 py-3 rounded-lg transition shadow-sm">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+        </svg>
+        Launch Campaign
+      </button>
+    </div>
+
+  </form>
+
+  <!-- Sender accounts reference -->
+  <div class="mt-5 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
     <div class="px-6 py-4 border-b border-gray-100">
       <h4 class="text-sm font-semibold text-gray-700">Sender Accounts</h4>
     </div>
@@ -145,5 +230,38 @@
   </div>
 
 </div>
+
+<script>
+function toggleStep(num) {
+  const cb = document.getElementById('enable_step' + num);
+  const body = document.getElementById('step' + num + '_body');
+  const badge = document.getElementById('step' + num + '-badge');
+  const enabled = cb.checked;
+
+  body.classList.toggle('opacity-40', !enabled);
+  body.classList.toggle('pointer-events-none', !enabled);
+  badge.classList.toggle('bg-blue-600', enabled);
+  badge.classList.toggle('text-white', enabled);
+  badge.classList.toggle('bg-gray-200', !enabled);
+  badge.classList.toggle('text-gray-600', !enabled);
+
+  // Step 3 requires step 2
+  if (num === 2) {
+    const cb3 = document.getElementById('enable_step3');
+    const lbl3 = document.getElementById('step3-label');
+    if (!enabled) {
+      cb3.checked = false;
+      cb3.disabled = true;
+      lbl3.querySelector('span').textContent = 'Enable Step 2 first';
+      lbl3.classList.add('opacity-60');
+      toggleStep(3);
+    } else {
+      cb3.disabled = false;
+      lbl3.querySelector('span').textContent = 'Enable';
+      lbl3.classList.remove('opacity-60');
+    }
+  }
+}
+</script>
 
 {% endblock %}

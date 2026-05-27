@@ -83,6 +83,20 @@
             <td class="px-6 py-3">
               <p class="font-medium text-gray-800 truncate max-w-[160px]" title="{{ c.name }}">{{ c.name }}</p>
               <p class="text-xs text-gray-400 truncate max-w-[160px]" title="{{ c.id }}">{{ c.id }}</p>
+              {% if c.total_steps > 1 %}
+              <span class="text-xs font-medium
+                {% if c.campaign_status == 'completed' %}text-green-600
+                {% elif c.campaign_status == 'waiting' %}text-amber-500
+                {% else %}text-blue-500{% endif %}">
+                {% if c.campaign_status == 'completed' %}
+                  All {{ c.total_steps }} steps done
+                {% elif c.campaign_status == 'waiting' %}
+                  Step {{ c.current_step }}/{{ c.total_steps }} &mdash; {{ c.next_send_label }}
+                {% else %}
+                  Sending Step {{ c.current_step }}/{{ c.total_steps }}
+                {% endif %}
+              </span>
+              {% endif %}
             </td>
             <td class="px-6 py-3 text-gray-600 whitespace-nowrap">{{ c.account }}</td>
             <td class="px-6 py-3 text-center text-gray-800 font-medium">{{ c.sent }}/{{ c.total_recipients }}</td>
@@ -103,16 +117,30 @@
               {{ c.last_open | friendly_dt }}
             </td>
             <td class="px-6 py-3 text-center">
-              {% if c.pending > 0 %}
-              <form method="POST" action="/resume/{{ c.id }}" class="inline">
-                <button type="submit"
-                        class="text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 font-medium px-2 py-1 rounded-lg transition"
-                        title="Resume sending pending emails">
-                  ▶ Resume ({{ c.pending }} pending)
-                </button>
-              </form>
+              {% if c.campaign_status == 'completed' %}
+                <span class="text-xs text-green-600 font-medium">&#10003; Completed</span>
+
+              {% elif c.campaign_status == 'waiting' %}
+                <form method="POST" action="/resume/{{ c.id }}" class="inline"
+                      onsubmit="return confirm('Step {{ c.current_step }} is scheduled {{ c.next_send_label }}. Send it NOW instead?')">
+                  <button type="submit"
+                          class="text-xs bg-amber-100 hover:bg-amber-200 text-amber-700 font-medium px-2 py-1 rounded-lg transition"
+                          title="Step {{ c.current_step }} due {{ c.next_send_label }} — click to send now">
+                    &#9201; Step {{ c.current_step }} due {{ c.next_send_label }}
+                  </button>
+                </form>
+
+              {% elif c.pending > 0 %}
+                <form method="POST" action="/resume/{{ c.id }}" class="inline">
+                  <button type="submit"
+                          class="text-xs bg-orange-100 hover:bg-orange-200 text-orange-700 font-medium px-2 py-1 rounded-lg transition"
+                          title="Resume sending — {{ c.pending }} recipients still pending">
+                    &#9654; Resume Step {{ c.current_step }} ({{ c.pending }} left)
+                  </button>
+                </form>
+
               {% else %}
-              <span class="text-xs text-green-600 font-medium">Done</span>
+                <span class="text-xs text-gray-400">—</span>
               {% endif %}
             </td>
           </tr>

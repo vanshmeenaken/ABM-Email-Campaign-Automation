@@ -28,3 +28,12 @@ Thumbs.db
 .env
 .env.local
 *.db
+
+# Campaign data (user data, stays local)
+campaigns/
+
+# Claude / internal tools
+.claude/
+graphify-out/
+.graphify_build.py
+.graphify_merge.py

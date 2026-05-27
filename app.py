@@ -10,7 +10,7 @@ import csv
 import json
 import socket
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -23,7 +23,7 @@ load_dotenv()
 from send_email import send_email
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "ken-research-secret-2024")
+app.secret_key = os.getenv("FLASK_SECRET_KEY")
 
 DB_PATH = Path(__file__).parent / "email_opens.db"
 CAMPAIGNS_DIR = Path(__file__).parent / "campaigns"
@@ -42,64 +42,230 @@ ACCOUNTS = {
     "4": "Tanushree Kalita",
 }
 
-def bulk_send_worker(campaign_id, account_num, recipients, subject, body, tracker_url, delay_seconds=None):
-    """Send emails to all recipients with random 4-5 min delay between each. Runs in background thread."""
+def _save_progress(progress_path, prog):
+    with open(progress_path, "w", encoding="utf-8") as f:
+        json.dump(prog, f, indent=2)
+
+def _load_progress(progress_path):
+    with open(progress_path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def parse_recipients(raw_text):
+    """Parse recipient lines into dicts.
+
+    Accepted formats (one per line):
+      Vansh, Acme Corp, vansh@example.com   <- name + company + email
+      Vansh, vansh@example.com              <- name + email
+      vansh@example.com                     <- email only
+    Returns list of {"email": ..., "first_name": ..., "company": ...}
+    """
+    result = []
+    for line in raw_text.splitlines():
+        line = line.strip()
+        if not line or "@" not in line:
+            continue
+        parts = [p.strip() for p in line.split(",")]
+        email_idx = next((i for i, p in enumerate(parts) if "@" in p), None)
+        if email_idx is None:
+            continue
+        email = parts[email_idx].lower()
+        non_email = [p for i, p in enumerate(parts) if i != email_idx]
+        first_name = non_email[0] if len(non_email) >= 1 else ""
+        company = non_email[1] if len(non_email) >= 2 else ""
+        result.append({"email": email, "first_name": first_name, "company": company})
+    return result
+
+
+def personalize(text, first_name, company=""):
+    """Replace {First Name}, {Company}, and related placeholders."""
+    name = first_name or ""
+    comp = company or ""
+    for placeholder in ("{First Name}", "{first_name}", "{Name}", "{name}"):
+        text = text.replace(placeholder, name)
+    for placeholder in ("{Company}", "{company}", "{Company Name}", "{company name}"):
+        text = text.replace(placeholder, comp)
+    return text
+
+
+def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_url):
+    """Multi-step campaign sender with full state persistence.
+
+    State written to progress.json after every action so resume is always safe:
+      campaign_status = 'active'  — currently sending step N
+      campaign_status = 'waiting' — step N done, sleeping until next_step_send_at
+      campaign_status = 'completed' — all steps sent
+
+    On resume: reads next_step_send_at from file; never recalculates from scratch.
+    Duplicate-send guard: checks steps_completed per recipient before every send.
+    """
     import time, random
     campaign_folder = CAMPAIGNS_DIR / campaign_id
+    progress_path = campaign_folder / "progress.json"
+    log_path = campaign_folder / "send_log.txt"
 
-    for i, recipient in enumerate(recipients):
+    for seq_idx, seq in enumerate(sequences):
+        step_num = seq["step"]
+        subject = seq["subject"]
+        body = seq["body"]
+        is_last = (seq_idx == len(sequences) - 1)
+
+        # ── Wait until scheduled send time ──────────────────────────────────
+        # next_step_send_at may be pre-written (resume from waiting state)
+        # or derived from delay_days on first run.
         try:
-            if i > 0:
-                delay = delay_seconds if delay_seconds else random.uniform(240, 300)
-                time.sleep(delay)
+            prog = _load_progress(progress_path)
+            stored_send_at = prog.get("next_step_send_at") if prog.get("current_step") == step_num else None
+        except Exception:
+            stored_send_at = None
 
-            result = send_email(
-                account_num=account_num,
-                recipient_email=recipient,
-                subject=subject,
-                body=body,
-                campaign_id=campaign_id,
-                step=1,
-                tracker_url=tracker_url,
-            )
+        if stored_send_at:
+            send_at = datetime.fromisoformat(stored_send_at)
+        else:
+            delay_days = seq.get("delay_days", 0)
+            send_at = datetime.now() + timedelta(days=delay_days) if delay_days > 0 else datetime.now()
 
-            # Update progress.json after each send
-            progress_path = campaign_folder / "progress.json"
-            if progress_path.exists():
-                with open(progress_path, encoding="utf-8") as f:
-                    progress = json.load(f)
+        remaining = (send_at - datetime.now()).total_seconds()
+        if remaining > 0:
+            # Persist waiting state so dashboard shows correct status
+            try:
+                prog = _load_progress(progress_path)
+                prog["campaign_status"] = "waiting"
+                prog["current_step"] = step_num
+                prog["next_step_send_at"] = send_at.isoformat()
+                prog["last_update"] = datetime.now().isoformat()
+                _save_progress(progress_path, prog)
+            except Exception:
+                pass
 
-                for detail in progress["send_details"]:
-                    if detail["recipient"] == recipient and detail["status"] == "pending":
-                        if result:
-                            detail["status"] = "sent"
-                            detail["step"] = 1
-                            detail["sent_at"] = datetime.now().isoformat()
-                            progress["sent"] += 1
-                            progress["pending"] -= 1
-                        else:
-                            detail["status"] = "failed"
-                            progress["failed"] += 1
-                            progress["pending"] -= 1
-                        break
+            days_left = remaining / 86400
+            print(f"[{campaign_id}] Step {step_num}: waiting {days_left:.1f}d "
+                  f"(until {send_at.strftime('%Y-%m-%d %H:%M')})...")
+            time.sleep(remaining)
 
-                progress["last_update"] = datetime.now().isoformat()
-                with open(progress_path, "w", encoding="utf-8") as f:
-                    json.dump(progress, f, indent=2)
+        # ── Mark step as actively sending ────────────────────────────────────
+        try:
+            prog = _load_progress(progress_path)
+            prog["campaign_status"] = "active"
+            prog["current_step"] = step_num
+            prog["next_step_send_at"] = None
+            prog["last_update"] = datetime.now().isoformat()
+            _save_progress(progress_path, prog)
+        except Exception:
+            pass
 
-            # Append to log
-            log_path = campaign_folder / "send_log.txt"
-            status = "SENT" if result else "FAILED"
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"[{status}] {recipient} at {datetime.now()}\n")
+        # ── Determine which recipients still need this step ──────────────────
+        # Duplicate-send guard: read live progress.json, build set of emails
+        # that already got this step, then filter recipients list.
+        try:
+            prog = _load_progress(progress_path)
+            already_sent = {
+                d["recipient"] for d in prog["send_details"]
+                if step_num in d.get("steps_completed", [])
+            }
+            failed_emails = {
+                d["recipient"] for d in prog["send_details"]
+                if d.get("status") == "failed"
+            }
+        except Exception:
+            already_sent, failed_emails = set(), set()
 
-        except Exception as e:
-            log_path = campaign_folder / "send_log.txt"
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"[ERROR] {recipient} at {datetime.now()}: {str(e)}\n")
+        # recipients is a list of {"email": ..., "first_name": ...}
+        need_step = [
+            r for r in recipients
+            if r["email"] not in already_sent and r["email"] not in failed_emails
+        ]
+
+        print(f"[{campaign_id}] Step {step_num}: sending to {len(need_step)} recipients "
+              f"(skipping {len(recipients) - len(need_step)} already sent)...")
+
+        for i, rec in enumerate(need_step):
+            email = rec["email"]
+            first_name = rec.get("first_name", "")
+            company = rec.get("company", "")
+            try:
+                if i > 0:
+                    time.sleep(random.uniform(240, 300))  # 4-5 min anti-spam gap
+
+                # Personalize subject and body for this individual
+                p_subject = personalize(subject, first_name, company)
+                p_body = personalize(body, first_name, company)
+
+                result = send_email(
+                    account_num=account_num,
+                    recipient_email=email,
+                    subject=p_subject,
+                    body=p_body,
+                    campaign_id=campaign_id,
+                    step=step_num,
+                    tracker_url=tracker_url,
+                )
+
+                # Update per-recipient state
+                try:
+                    prog = _load_progress(progress_path)
+                    for detail in prog["send_details"]:
+                        if detail["recipient"] == email:
+                            steps_done = detail.setdefault("steps_completed", [])
+                            if result:
+                                if step_num not in steps_done:
+                                    steps_done.append(step_num)
+                                detail["status"] = "sent"
+                                detail["step"] = step_num
+                                detail["sent_at"] = datetime.now().isoformat()
+                                if step_num == 1:
+                                    prog["sent"] = prog.get("sent", 0) + 1
+                                    prog["pending"] = max(0, prog.get("pending", 1) - 1)
+                            else:
+                                detail["status"] = "failed"
+                                if step_num == 1:
+                                    prog["failed"] = prog.get("failed", 0) + 1
+                                    prog["pending"] = max(0, prog.get("pending", 1) - 1)
+                            break
+                    prog["last_update"] = datetime.now().isoformat()
+                    _save_progress(progress_path, prog)
+                except Exception:
+                    pass
+
+                status_str = "SENT" if result else "FAILED"
+                with open(log_path, "a", encoding="utf-8") as f:
+                    label = f"{first_name} <{email}>" if first_name else email
+                    f.write(f"[Step {step_num}] [{status_str}] {label} at {datetime.now()}\n")
+
+            except Exception as e:
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(f"[Step {step_num}] [ERROR] {email} at {datetime.now()}: {e}\n")
+                except Exception:
+                    pass
+
+        # ── Record step completion ────────────────────────────────────────────
+        try:
+            prog = _load_progress(progress_path)
+            completed_at = prog.setdefault("step_completed_at", {})
+            completed_at[str(step_num)] = datetime.now().isoformat()
+
+            if is_last:
+                prog["campaign_status"] = "completed"
+                prog["next_step_send_at"] = None
+                print(f"[{campaign_id}] All {len(sequences)} step(s) complete.")
+            else:
+                # Pre-calculate when the NEXT step will send and persist it
+                next_seq = sequences[seq_idx + 1]
+                next_send_at = datetime.now() + timedelta(days=next_seq.get("delay_days", 1))
+                prog["campaign_status"] = "waiting"
+                prog["current_step"] = next_seq["step"]
+                prog["next_step_send_at"] = next_send_at.isoformat()
+                print(f"[{campaign_id}] Step {step_num} done. "
+                      f"Step {next_seq['step']} scheduled for {next_send_at.strftime('%Y-%m-%d %H:%M')}.")
+
+            prog["last_update"] = datetime.now().isoformat()
+            _save_progress(progress_path, prog)
+        except Exception:
+            pass
 
 
-def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, subject, body):
+def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, sequences):
     """Create campaign folder structure for bulk send + scheduler"""
     campaign_folder = CAMPAIGNS_DIR / campaign_id
     campaign_folder.mkdir(parents=True, exist_ok=True)
@@ -112,37 +278,46 @@ def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, su
         "created_at": datetime.now().isoformat(),
         "status": "active",
         "total_recipients": len(recipients),
-        "email_sequences": [{"step": 1, "delay_days": 0, "delay_minutes": 0, "subject": subject, "body": body}]
+        "total_steps": len(sequences),
+        "email_sequences": sequences,
     }
     with open(campaign_folder / "brief.json", "w", encoding="utf-8") as f:
         json.dump(brief, f, indent=2)
 
+    # recipients = [{"email": ..., "first_name": ..., "company": ...}, ...]
     with open(campaign_folder / "recipients.csv", "w", newline='', encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["email"])
+        writer.writerow(["first_name", "company", "email"])
         for r in recipients:
-            writer.writerow([r])
+            writer.writerow([r.get("first_name", ""), r.get("company", ""), r["email"]])
 
     progress = {
         "campaign_id": campaign_id,
         "total_recipients": len(recipients),
+        "total_steps": len(sequences),
+        "current_step": 1,
+        "campaign_status": "active",
+        "next_step_send_at": None,
+        "step_completed_at": {},
         "sent": 0,
         "pending": len(recipients),
         "failed": 0,
         "retry_queue": 0,
         "last_update": datetime.now().isoformat(),
-        "current_step": 1,
         "send_details": [
             {
-                "recipient": r,
+                "recipient": r["email"],
+                "first_name": r.get("first_name", ""),
+                "company": r.get("company", ""),
                 "step": 0,
+                "steps_completed": [],
                 "status": "pending",
                 "message_id": None,
                 "sent_at": None,
-                "retry_count": 0
+                "retry_count": 0,
             }
             for r in recipients
-        ]
+        ],
     }
     with open(campaign_folder / "progress.json", "w", encoding="utf-8") as f:
         json.dump(progress, f, indent=2)
@@ -246,16 +421,39 @@ def get_dashboard_stats():
                     f"{opens_for_campaign / sent * 100:.1f}%"
                     if sent > 0 else "—"
                 )
+                campaign_status = progress.get("campaign_status", "active")
+                next_send_at = progress.get("next_step_send_at")
+                next_send_label = None
+                if campaign_status == "waiting" and next_send_at:
+                    try:
+                        dt = datetime.fromisoformat(next_send_at)
+                        delta = dt - datetime.now()
+                        if delta.total_seconds() > 0:
+                            hrs = int(delta.total_seconds() // 3600)
+                            if hrs >= 24:
+                                next_send_label = f"in {hrs // 24}d {hrs % 24}h"
+                            else:
+                                next_send_label = f"in {hrs}h"
+                        else:
+                            next_send_label = "due now"
+                    except Exception:
+                        next_send_label = "soon"
+
                 campaigns_info.append({
                     "id": folder.name,
                     "name": brief.get("name", folder.name),
                     "account": brief.get("account_name", "—"),
                     "status": brief.get("status", "active"),
+                    "campaign_status": campaign_status,
+                    "next_step_send_at": next_send_at,
+                    "next_send_label": next_send_label,
                     "sent": sent,
                     "total_recipients": progress.get("total_recipients", 0),
                     "pending": progress.get("pending", 0),
                     "opens": opens_for_campaign,
                     "open_rate": open_rate,
+                    "total_steps": brief.get("total_steps", 1),
+                    "current_step": progress.get("current_step", 1),
                     "last_open": next(
                         (r["last_open"] for r in campaign_rows if r["campaign_id"] == folder.name),
                         None
@@ -325,8 +523,6 @@ def send_form():
 def send_submit():
     account_num = request.form.get("account", "").strip()
     recipients_raw = request.form.get("recipients", "").strip()
-    subject = request.form.get("subject", "").strip() or "Test Email - Ken Research Automation"
-    body = request.form.get("body", "").strip()
     campaign_id = request.form.get("campaign_id", "").strip() or None
     tracker_url = request.form.get("tracker_url", "http://localhost:5000").strip()
 
@@ -337,77 +533,61 @@ def send_submit():
         flash("At least one recipient email is required.", "error")
         return redirect(url_for("send_form"))
 
-    # Parse recipients (one per line)
-    recipients = [r.strip() for r in recipients_raw.splitlines() if r.strip()]
-
-    if not body:
-        body = (
-            f"<p>This is a test email sent from the Ken Research Email Campaign system.</p>"
-            f"<p>Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"
-        )
-
-    # SINGLE recipient — send immediately + create campaign record for stats
-    if len(recipients) == 1:
-        if not campaign_id:
-            campaign_id = f"camp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        try:
-            create_bulk_campaign(campaign_id, subject, account_num, recipients, subject, body)
-            result = send_email(
-                account_num=account_num,
-                recipient_email=recipients[0],
-                subject=subject,
-                body=body,
-                campaign_id=campaign_id,
-                step=1,
-                tracker_url=tracker_url,
-            )
-            # Update campaign progress
-            progress_path = CAMPAIGNS_DIR / campaign_id / "progress.json"
-            with open(progress_path, encoding="utf-8") as f:
-                progress = json.load(f)
-            for detail in progress["send_details"]:
-                if detail["recipient"] == recipients[0]:
-                    detail["status"] = "sent" if result else "failed"
-                    detail["step"] = 1
-                    detail["sent_at"] = datetime.now().isoformat()
-                    break
-            if result:
-                progress["sent"] = 1
-                progress["pending"] = 0
-            else:
-                progress["failed"] = 1
-                progress["pending"] = 0
-            progress["last_update"] = datetime.now().isoformat()
-            with open(progress_path, "w", encoding="utf-8") as f:
-                json.dump(progress, f, indent=2)
-
-            if result:
-                flash(f"Email sent from {ACCOUNTS[account_num]} to {recipients[0]}. Campaign '{campaign_id}' added to stats.", "success")
-            else:
-                flash("Failed to send email. Check your credentials and try again.", "error")
-        except Exception as e:
-            flash(f"Error: {str(e)}", "error")
+    recipients = parse_recipients(recipients_raw)
+    if not recipients:
+        flash("No valid email addresses found in recipients field.", "error")
         return redirect(url_for("send_form"))
 
-    # BULK recipients — create campaign + send in background thread (10 sec between each)
+    # Build sequences from form (up to 3 steps)
+    sequences = []
+    subject_1 = request.form.get("subject_1", "").strip() or "Ken Research Outreach"
+    body_1 = request.form.get("body_1", "").strip() or (
+        f"<p>This is an outreach email from Ken Research.</p>"
+        f"<p>Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"
+    )
+    sequences.append({"step": 1, "delay_days": 0, "subject": subject_1, "body": body_1})
+
+    for step_num in [2, 3]:
+        subj = request.form.get(f"subject_{step_num}", "").strip()
+        bod = request.form.get(f"body_{step_num}", "").strip()
+        if subj or bod:
+            try:
+                delay = max(1, int(request.form.get(f"delay_days_{step_num}", "2") or "2"))
+            except (ValueError, TypeError):
+                delay = 2
+            sequences.append({
+                "step": step_num,
+                "delay_days": delay,
+                "subject": subj or subject_1,
+                "body": bod or body_1,
+            })
+
     if not campaign_id:
         campaign_id = f"camp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
+    n_steps = len(sequences)
+    campaign_label = sequences[0]["subject"]
+
     try:
-        create_bulk_campaign(campaign_id, subject, account_num, recipients, subject, body)
+        create_bulk_campaign(campaign_id, campaign_label, account_num, recipients, sequences)
         thread = threading.Thread(
             target=bulk_send_worker,
-            args=(campaign_id, account_num, recipients, subject, body, tracker_url),
-            daemon=True
+            args=(campaign_id, account_num, recipients, sequences, tracker_url),
+            daemon=True,
         )
         thread.start()
+
+        step_summary = f"{n_steps}-step series" if n_steps > 1 else "1 message"
+        named = sum(1 for r in recipients if r.get("first_name") or r.get("company"))
+        personalized = f" ({named} personalized)" if named else ""
         flash(
-            f"Bulk send started: {len(recipients)} emails from {ACCOUNTS[account_num]}. "
-            f"Random 4-5 min gap between each. Watch Campaign Stats for live progress.",
+            f"Campaign started: {len(recipients)} recipient(s){personalized}, {step_summary}, "
+            f"from {ACCOUNTS[account_num]}. 4-5 min gap between emails. "
+            f"Watch Dashboard for live progress.",
             "success",
         )
     except Exception as e:
-        flash(f"Error starting bulk send: {str(e)}", "error")
+        flash(f"Error starting campaign: {str(e)}", "error")
 
     return redirect(url_for("send_form"))
 
@@ -517,7 +697,12 @@ def api_metrics(campaign_id):
 
 @app.route("/resume/<campaign_id>", methods=["POST"])
 def resume_campaign(campaign_id):
-    """Resume a stalled campaign — resend to all pending recipients."""
+    """Resume a campaign from its persisted state.
+
+    Safe against duplicates: uses steps_completed per recipient.
+    Safe against early sends: respects next_step_send_at unless user explicitly clicks Resume.
+    Manual Resume = user override; skips remaining wait and sends immediately.
+    """
     try:
         campaign_folder = CAMPAIGNS_DIR / campaign_id
         if not campaign_folder.exists():
@@ -530,32 +715,68 @@ def resume_campaign(campaign_id):
             flash("Campaign data missing.", "error")
             return redirect(url_for("dashboard"))
 
-        with open(progress_path, encoding="utf-8") as f:
-            progress = json.load(f)
+        progress = _load_progress(progress_path)
         with open(brief_path, encoding="utf-8") as f:
             brief = json.load(f)
 
+        campaign_status = progress.get("campaign_status", "active")
+        if campaign_status == "completed":
+            flash("Campaign already completed — all steps sent.", "error")
+            return redirect(url_for("dashboard"))
+
+        current_step = progress.get("current_step", 1)
+        all_sequences = brief.get("email_sequences", [])
+
+        # Recipients who still need the current step (duplicate-send guard)
         pending_recipients = [
-            d["recipient"] for d in progress.get("send_details", [])
-            if d.get("status") == "pending"
+            {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
+            for d in progress.get("send_details", [])
+            if current_step not in d.get("steps_completed", []) and d.get("status") != "failed"
         ]
+        # Fallback for old-format campaigns
+        if not pending_recipients:
+            pending_recipients = [
+                {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
+                for d in progress.get("send_details", [])
+                if d.get("status") == "pending"
+            ]
 
         if not pending_recipients:
-            flash("No pending recipients found.", "error")
+            flash(f"No pending recipients for Step {current_step}.", "error")
             return redirect(url_for("dashboard"))
 
         account_num = brief.get("account_number", "1")
-        subject = brief.get("email_sequences", [{}])[0].get("subject", "Ken Research")
-        body = brief.get("email_sequences", [{}])[0].get("body", "")
-        tracker_url = os.getenv("TRACKER_URL", "http://localhost:5000")
+        tracker_url = get_tracker_url()
+
+        # Build remaining sequences from current_step onward
+        remaining = [s for s in all_sequences if s["step"] >= current_step]
+        if not remaining:
+            remaining = all_sequences
+
+        # Manual Resume = send current step NOW, no delay
+        # Strip next_step_send_at so worker sends immediately
+        remaining = [dict(remaining[0], delay_days=0)] + remaining[1:]
+
+        # Clear waiting state so dashboard updates immediately
+        progress["campaign_status"] = "active"
+        progress["next_step_send_at"] = None
+        progress["last_update"] = datetime.now().isoformat()
+        _save_progress(progress_path, progress)
 
         thread = threading.Thread(
             target=bulk_send_worker,
-            args=(campaign_id, account_num, pending_recipients, subject, body, tracker_url),
-            daemon=True
+            args=(campaign_id, account_num, pending_recipients, remaining, tracker_url),
+            daemon=True,
         )
         thread.start()
-        flash(f"Resumed '{campaign_id}': sending {len(pending_recipients)} pending emails now.", "success")
+
+        if campaign_status == "waiting":
+            flash(f"'{campaign_id}': Step {current_step} sending now "
+                  f"({len(pending_recipients)} recipients) — scheduled wait overridden.", "success")
+        else:
+            flash(f"'{campaign_id}': Resumed Step {current_step} "
+                  f"({len(pending_recipients)} pending recipients).", "success")
+
     except Exception as e:
         flash(f"Error resuming: {str(e)}", "error")
     return redirect(url_for("dashboard"))
@@ -588,7 +809,13 @@ def friendly_dt(value):
 # ---------------------------------------------------------------------------
 
 def auto_resume_pending_campaigns():
-    """On startup, find campaigns with pending recipients and resume them."""
+    """On startup, resume active/waiting campaigns from their persisted state.
+
+    active  — app was stopped mid-send: resume current step immediately.
+    waiting — app was stopped between steps: sleep until next_step_send_at,
+              then send. Respects the scheduled delay so no premature sends.
+    completed — skip entirely.
+    """
     if not CAMPAIGNS_DIR.exists():
         return
     resumed = 0
@@ -600,29 +827,64 @@ def auto_resume_pending_campaigns():
         if not (progress_path.exists() and brief_path.exists()):
             continue
         try:
-            with open(progress_path, encoding="utf-8") as f:
-                progress = json.load(f)
+            progress = _load_progress(progress_path)
             with open(brief_path, encoding="utf-8") as f:
                 brief = json.load(f)
 
-            pending = [d["recipient"] for d in progress.get("send_details", []) if d.get("status") == "pending"]
+            campaign_status = progress.get("campaign_status", "active")
+            if campaign_status == "completed":
+                continue
+
+            current_step = progress.get("current_step", 1)
+            all_sequences = brief.get("email_sequences", [])
+
+            # Recipients who still need the current step
+            pending = [
+                {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
+                for d in progress.get("send_details", [])
+                if current_step not in d.get("steps_completed", []) and d.get("status") != "failed"
+            ]
+            # Fallback for old-format campaigns
+            if not pending:
+                pending = [
+                    {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
+                    for d in progress.get("send_details", [])
+                    if d.get("status") == "pending"
+                ]
             if not pending:
                 continue
 
             account_num = brief.get("account_number", "1")
-            seq = brief.get("email_sequences", [{}])[0]
-            subject = seq.get("subject", "Ken Research")
-            body = seq.get("body", "")
             tracker_url = get_tracker_url()
+            remaining_seqs = [s for s in all_sequences if s["step"] >= current_step]
+            if not remaining_seqs:
+                remaining_seqs = all_sequences
+
+            if campaign_status == "waiting":
+                # Preserve the scheduled send time — worker will sleep until then.
+                # next_step_send_at is already in progress.json; worker reads it.
+                next_send_at = progress.get("next_step_send_at", "")
+                try:
+                    dt = datetime.fromisoformat(next_send_at)
+                    label = dt.strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    label = "scheduled time"
+                print(f"[AUTO-RESUME] {folder.name}: Step {current_step} waiting until {label}, "
+                      f"{len(pending)} recipients queued.")
+            else:
+                # Active but interrupted — send current step immediately (no delay)
+                remaining_seqs = [dict(remaining_seqs[0], delay_days=0)] + remaining_seqs[1:]
+                print(f"[AUTO-RESUME] {folder.name}: Step {current_step} active, "
+                      f"resuming {len(pending)} recipients immediately.")
 
             thread = threading.Thread(
                 target=bulk_send_worker,
-                args=(folder.name, account_num, pending, subject, body, tracker_url),
-                daemon=True
+                args=(folder.name, account_num, pending, remaining_seqs, tracker_url),
+                daemon=True,
             )
             thread.start()
             resumed += 1
-            print(f"[AUTO-RESUME] {folder.name}: {len(pending)} pending recipients")
+
         except Exception as e:
             print(f"[AUTO-RESUME ERROR] {folder.name}: {e}")
     if resumed:

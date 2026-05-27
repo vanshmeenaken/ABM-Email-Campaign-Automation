@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Satellite Accounts Configuration
-TENANT_ID = os.getenv("TENANT_ID", "4cc899f4-0a92-4970-91fa-18845decdd64")
+TENANT_ID = os.getenv("TENANT_ID")
 
 ACCOUNTS = {
     "1": {
