@@ -891,10 +891,12 @@ def auto_resume_pending_campaigns():
         print(f"[OK] Auto-resumed {resumed} campaign(s)")
 
 
+# Run on startup regardless of whether launched via Python or gunicorn
+init_db()
+auto_resume_pending_campaigns()
+
 if __name__ == "__main__":
-    init_db()
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "False").lower() == "true"
     print(f"[OK] Ken Research Email Campaign App running on http://localhost:{port}")
-    auto_resume_pending_campaigns()
     app.run(host="0.0.0.0", port=port, debug=debug)
