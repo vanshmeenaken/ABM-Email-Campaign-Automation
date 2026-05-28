@@ -760,8 +760,10 @@ def health():
 
 @app.route("/debug/reply/<campaign_id>", methods=["GET"])
 def debug_reply(campaign_id):
-    """Debug endpoint: manually run inbox check for a campaign and return raw results."""
-    from send_email import read_inbox
+    """Debug endpoint: calls Graph API directly and returns full raw response."""
+    import requests as req
+    from send_email import get_access_token, ACCOUNTS, TENANT_ID
+
     try:
         brief = _load_brief(campaign_id)
         progress = _load_progress(campaign_id)
@@ -770,29 +772,41 @@ def debug_reply(campaign_id):
             return jsonify({"error": f"Campaign '{campaign_id}' not found"}), 404
 
         account_num = brief.get("account_number", "1")
+        account = ACCOUNTS[account_num]
         created_at = brief.get("created_at", "")
-        try:
-            since_dt = datetime.fromisoformat(created_at)
-        except Exception:
-            since_dt = None
+        recipients_in_campaign = [d["recipient"] for d in progress.get("send_details", [])]
 
-        recipients_in_campaign = [
-            d["recipient"] for d in progress.get("send_details", [])
-        ]
+        # Step 1: get token
+        token = get_access_token(account["client_id"], account["client_secret"])
+        if not token:
+            return jsonify({"error": "Failed to get access token — check client_id/secret"}), 500
 
-        messages = read_inbox(account_num, since_dt)
+        # Step 2: call Graph API directly and return full response
+        since_str = datetime.fromisoformat(created_at).strftime("%Y-%m-%dT%H:%M:%SZ") if created_at else None
+        params = {
+            "$select": "from,subject,receivedDateTime,bodyPreview",
+            "$top": "20",
+            "$orderby": "receivedDateTime desc",
+        }
+        if since_str:
+            params["$filter"] = f"receivedDateTime ge {since_str}"
 
-        matches = [m for m in messages if m["from_email"] in recipients_in_campaign]
+        resp = req.get(
+            f"https://graph.microsoft.com/v1.0/users/{account['email']}/mailFolders/Inbox/messages",
+            headers={"Authorization": f"Bearer {token}"},
+            params=params,
+        )
 
         return jsonify({
             "campaign_id": campaign_id,
             "account_num": account_num,
-            "since": created_at,
+            "sender_email": account["email"],
+            "since_filter": since_str,
             "recipients_in_campaign": recipients_in_campaign,
-            "total_inbox_messages_fetched": len(messages),
-            "inbox_messages": messages,
-            "matching_replies": matches,
+            "graph_api_status": resp.status_code,
+            "graph_api_response": resp.json(),
         })
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
