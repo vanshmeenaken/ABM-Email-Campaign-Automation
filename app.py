@@ -406,7 +406,7 @@ def execute_db(sql, params=()):
 
 def get_dashboard_stats():
     campaign_rows = query_db("""
-        SELECT campaign_id, COUNT(*) as open_count, MAX(timestamp) as last_open
+        SELECT campaign_id, COUNT(DISTINCT recipient) as open_count, MAX(timestamp) as last_open
         FROM opens
         GROUP BY campaign_id
         ORDER BY last_open DESC
@@ -668,7 +668,7 @@ def api_metrics(campaign_id):
     brief = _load_brief(campaign_id)
     progress = _load_progress(campaign_id)
     opens_row = query_db(
-        "SELECT COUNT(*) as cnt, MAX(timestamp) as last_open FROM opens WHERE campaign_id = %s",
+        "SELECT COUNT(DISTINCT recipient) as cnt, MAX(timestamp) as last_open FROM opens WHERE campaign_id = %s",
         (campaign_id,), one=True,
     )
     open_count = opens_row["cnt"] if opens_row else 0
@@ -762,7 +762,16 @@ def health():
 def debug_reply(campaign_id):
     """Debug endpoint: calls Graph API directly and returns full raw response."""
     import requests as req
+    import base64
     from send_email import get_access_token, ACCOUNTS, TENANT_ID
+
+    def decode_token(token):
+        try:
+            payload = token.split('.')[1]
+            payload += '=' * (4 - len(payload) % 4)
+            return json.loads(base64.urlsafe_b64decode(payload))
+        except Exception as e:
+            return {"decode_error": str(e)}
 
     try:
         brief = _load_brief(campaign_id)
@@ -780,6 +789,10 @@ def debug_reply(campaign_id):
         token = get_access_token(account["client_id"], account["client_secret"])
         if not token:
             return jsonify({"error": "Failed to get access token — check client_id/secret"}), 500
+
+        # Decode token to inspect granted roles
+        token_claims = decode_token(token)
+        token_roles = token_claims.get("roles", [])
 
         # Step 2: call Graph API directly and return full response
         since_str = datetime.fromisoformat(created_at).strftime("%Y-%m-%dT%H:%M:%SZ") if created_at else None
@@ -803,6 +816,8 @@ def debug_reply(campaign_id):
             "sender_email": account["email"],
             "since_filter": since_str,
             "recipients_in_campaign": recipients_in_campaign,
+            "token_roles": token_roles,
+            "mail_read_in_token": "Mail.Read" in token_roles,
             "graph_api_status": resp.status_code,
             "graph_api_response": resp.json(),
         })
