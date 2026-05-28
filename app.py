@@ -845,7 +845,7 @@ def reply_checker_worker():
     from send_email import read_inbox
 
     while True:
-        time.sleep(600)  # 10 minutes between each check
+        time.sleep(10)  # 10 seconds between each check
         if not CAMPAIGNS_DIR.exists():
             continue
 
