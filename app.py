@@ -861,9 +861,6 @@ def reply_checker_worker():
                 progress = row["progress"] if isinstance(row["progress"], dict) else json.loads(row["progress"])
                 campaign_id = row["campaign_id"]
 
-                if progress.get("campaign_status") == "completed":
-                    continue
-
                 account_num = brief.get("account_number", "1")
                 try:
                     since_dt = datetime.fromisoformat(brief.get("created_at", ""))
