@@ -4,29 +4,26 @@ Ken Research - Email Campaign Web App
 Unified Flask app combining email sending, tracking, and campaign dashboard.
 """
 
-import sqlite3
 import os
-import csv
 import json
 import socket
 import threading
 from datetime import datetime, timedelta
 from io import BytesIO
-from pathlib import Path
 
+import psycopg2
+import psycopg2.extras
 from flask import Flask, request, send_file, render_template, redirect, url_for, jsonify, flash
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Import send_email from the existing module
 from send_email import send_email
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY")
 
-DB_PATH = Path(__file__).parent / "email_opens.db"
-CAMPAIGNS_DIR = Path(__file__).parent / "campaigns"
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # 1x1 transparent PNG pixel
 PIXEL = (
@@ -42,22 +39,69 @@ ACCOUNTS = {
     "4": "Tanushree Kalita",
 }
 
-def _save_progress(progress_path, prog):
-    with open(progress_path, "w", encoding="utf-8") as f:
-        json.dump(prog, f, indent=2)
 
-def _load_progress(progress_path):
-    with open(progress_path, encoding="utf-8") as f:
-        return json.load(f)
+# ---------------------------------------------------------------------------
+# DB connection
+# ---------------------------------------------------------------------------
 
+def get_db_conn():
+    return psycopg2.connect(DATABASE_URL, sslmode="require")
+
+
+# ---------------------------------------------------------------------------
+# Campaign state helpers (DB-backed, replaces progress.json / brief.json)
+# ---------------------------------------------------------------------------
+
+def _save_progress(campaign_id, prog):
+    conn = get_db_conn()
+    try:
+        c = conn.cursor()
+        c.execute(
+            "UPDATE campaigns SET progress = %s WHERE campaign_id = %s",
+            (json.dumps(prog), campaign_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _load_progress(campaign_id):
+    conn = get_db_conn()
+    try:
+        c = conn.cursor()
+        c.execute("SELECT progress FROM campaigns WHERE campaign_id = %s", (campaign_id,))
+        row = c.fetchone()
+        if row:
+            return row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        return {}
+    finally:
+        conn.close()
+
+
+def _load_brief(campaign_id):
+    conn = get_db_conn()
+    try:
+        c = conn.cursor()
+        c.execute("SELECT brief FROM campaigns WHERE campaign_id = %s", (campaign_id,))
+        row = c.fetchone()
+        if row:
+            return row[0] if isinstance(row[0], dict) else json.loads(row[0])
+        return {}
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Personalization helpers
+# ---------------------------------------------------------------------------
 
 def parse_recipients(raw_text):
     """Parse recipient lines into dicts.
 
     Accepted formats (one per line):
-      Vansh, Acme Corp, vansh@example.com   <- name + company + email
-      Vansh, vansh@example.com              <- name + email
-      vansh@example.com                     <- email only
+      Vansh, Acme Corp, vansh@example.com
+      Vansh, vansh@example.com
+      vansh@example.com
     Returns list of {"email": ..., "first_name": ..., "company": ...}
     """
     result = []
@@ -88,21 +132,13 @@ def personalize(text, first_name, company=""):
     return text
 
 
+# ---------------------------------------------------------------------------
+# Campaign worker
+# ---------------------------------------------------------------------------
+
 def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_url):
-    """Multi-step campaign sender with full state persistence.
-
-    State written to progress.json after every action so resume is always safe:
-      campaign_status = 'active'  — currently sending step N
-      campaign_status = 'waiting' — step N done, sleeping until next_step_send_at
-      campaign_status = 'completed' — all steps sent
-
-    On resume: reads next_step_send_at from file; never recalculates from scratch.
-    Duplicate-send guard: checks steps_completed per recipient before every send.
-    """
+    """Multi-step campaign sender with full state persistence via Supabase."""
     import time, random
-    campaign_folder = CAMPAIGNS_DIR / campaign_id
-    progress_path = campaign_folder / "progress.json"
-    log_path = campaign_folder / "send_log.txt"
 
     for seq_idx, seq in enumerate(sequences):
         step_num = seq["step"]
@@ -110,11 +146,9 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
         body = seq["body"]
         is_last = (seq_idx == len(sequences) - 1)
 
-        # ── Wait until scheduled send time ──────────────────────────────────
-        # next_step_send_at may be pre-written (resume from waiting state)
-        # or derived from delay_days on first run.
+        # Wait until scheduled send time
         try:
-            prog = _load_progress(progress_path)
+            prog = _load_progress(campaign_id)
             stored_send_at = prog.get("next_step_send_at") if prog.get("current_step") == step_num else None
         except Exception:
             stored_send_at = None
@@ -127,38 +161,33 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
 
         remaining = (send_at - datetime.now()).total_seconds()
         if remaining > 0:
-            # Persist waiting state so dashboard shows correct status
             try:
-                prog = _load_progress(progress_path)
+                prog = _load_progress(campaign_id)
                 prog["campaign_status"] = "waiting"
                 prog["current_step"] = step_num
                 prog["next_step_send_at"] = send_at.isoformat()
                 prog["last_update"] = datetime.now().isoformat()
-                _save_progress(progress_path, prog)
+                _save_progress(campaign_id, prog)
             except Exception:
                 pass
-
-            days_left = remaining / 86400
-            print(f"[{campaign_id}] Step {step_num}: waiting {days_left:.1f}d "
+            print(f"[{campaign_id}] Step {step_num}: waiting {remaining/86400:.1f}d "
                   f"(until {send_at.strftime('%Y-%m-%d %H:%M')})...")
             time.sleep(remaining)
 
-        # ── Mark step as actively sending ────────────────────────────────────
+        # Mark step as actively sending
         try:
-            prog = _load_progress(progress_path)
+            prog = _load_progress(campaign_id)
             prog["campaign_status"] = "active"
             prog["current_step"] = step_num
             prog["next_step_send_at"] = None
             prog["last_update"] = datetime.now().isoformat()
-            _save_progress(progress_path, prog)
+            _save_progress(campaign_id, prog)
         except Exception:
             pass
 
-        # ── Determine which recipients still need this step ──────────────────
-        # Duplicate-send guard: read live progress.json, build set of emails
-        # that already got this step, then filter recipients list.
+        # Duplicate-send guard + replied guard
         try:
-            prog = _load_progress(progress_path)
+            prog = _load_progress(campaign_id)
             already_sent = {
                 d["recipient"] for d in prog["send_details"]
                 if step_num in d.get("steps_completed", [])
@@ -174,7 +203,6 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
         except Exception:
             already_sent, failed_emails, replied_emails = set(), set(), set()
 
-        # recipients is a list of {"email": ..., "first_name": ..., "company": ...}
         need_step = [
             r for r in recipients
             if r["email"] not in already_sent
@@ -183,7 +211,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
         ]
 
         print(f"[{campaign_id}] Step {step_num}: sending to {len(need_step)} recipients "
-              f"(skipping {len(recipients) - len(need_step)} already sent)...")
+              f"(skipping {len(recipients) - len(need_step)} already sent/replied)...")
 
         for i, rec in enumerate(need_step):
             email = rec["email"]
@@ -193,7 +221,6 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                 if i > 0:
                     time.sleep(random.uniform(240, 300))  # 4-5 min anti-spam gap
 
-                # Personalize subject and body for this individual
                 p_subject = personalize(subject, first_name, company)
                 p_body = personalize(body, first_name, company)
 
@@ -207,9 +234,8 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                     tracker_url=tracker_url,
                 )
 
-                # Update per-recipient state
                 try:
-                    prog = _load_progress(progress_path)
+                    prog = _load_progress(campaign_id)
                     for detail in prog["send_details"]:
                         if detail["recipient"] == email:
                             steps_done = detail.setdefault("steps_completed", [])
@@ -229,34 +255,26 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                                     prog["pending"] = max(0, prog.get("pending", 1) - 1)
                             break
                     prog["last_update"] = datetime.now().isoformat()
-                    _save_progress(progress_path, prog)
+                    _save_progress(campaign_id, prog)
                 except Exception:
                     pass
 
-                status_str = "SENT" if result else "FAILED"
-                with open(log_path, "a", encoding="utf-8") as f:
-                    label = f"{first_name} <{email}>" if first_name else email
-                    f.write(f"[Step {step_num}] [{status_str}] {label} at {datetime.now()}\n")
+                label = f"{first_name} <{email}>" if first_name else email
+                print(f"[Step {step_num}] [{'SENT' if result else 'FAILED'}] {label} at {datetime.now()}")
 
             except Exception as e:
-                try:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(f"[Step {step_num}] [ERROR] {email} at {datetime.now()}: {e}\n")
-                except Exception:
-                    pass
+                print(f"[Step {step_num}] [ERROR] {email}: {e}")
 
-        # ── Record step completion ────────────────────────────────────────────
+        # Record step completion
         try:
-            prog = _load_progress(progress_path)
-            completed_at = prog.setdefault("step_completed_at", {})
-            completed_at[str(step_num)] = datetime.now().isoformat()
+            prog = _load_progress(campaign_id)
+            prog.setdefault("step_completed_at", {})[str(step_num)] = datetime.now().isoformat()
 
             if is_last:
                 prog["campaign_status"] = "completed"
                 prog["next_step_send_at"] = None
                 print(f"[{campaign_id}] All {len(sequences)} step(s) complete.")
             else:
-                # Pre-calculate when the NEXT step will send and persist it
                 next_seq = sequences[seq_idx + 1]
                 next_send_at = datetime.now() + timedelta(days=next_seq.get("delay_days", 1))
                 prog["campaign_status"] = "waiting"
@@ -266,16 +284,13 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                       f"Step {next_seq['step']} scheduled for {next_send_at.strftime('%Y-%m-%d %H:%M')}.")
 
             prog["last_update"] = datetime.now().isoformat()
-            _save_progress(progress_path, prog)
+            _save_progress(campaign_id, prog)
         except Exception:
             pass
 
 
 def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, sequences):
-    """Create campaign folder structure for bulk send + scheduler"""
-    campaign_folder = CAMPAIGNS_DIR / campaign_id
-    campaign_folder.mkdir(parents=True, exist_ok=True)
-
+    """Create campaign record in Supabase."""
     brief = {
         "campaign_id": campaign_id,
         "name": campaign_name,
@@ -287,16 +302,6 @@ def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, se
         "total_steps": len(sequences),
         "email_sequences": sequences,
     }
-    with open(campaign_folder / "brief.json", "w", encoding="utf-8") as f:
-        json.dump(brief, f, indent=2)
-
-    # recipients = [{"email": ..., "first_name": ..., "company": ...}, ...]
-    with open(campaign_folder / "recipients.csv", "w", newline='', encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["first_name", "company", "email"])
-        for r in recipients:
-            writer.writerow([r.get("first_name", ""), r.get("company", ""), r["email"]])
-
     progress = {
         "campaign_id": campaign_id,
         "total_recipients": len(recipients),
@@ -308,7 +313,6 @@ def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, se
         "sent": 0,
         "pending": len(recipients),
         "failed": 0,
-        "retry_queue": 0,
         "last_update": datetime.now().isoformat(),
         "send_details": [
             {
@@ -318,18 +322,26 @@ def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, se
                 "step": 0,
                 "steps_completed": [],
                 "status": "pending",
-                "message_id": None,
                 "sent_at": None,
                 "retry_count": 0,
             }
             for r in recipients
         ],
     }
-    with open(campaign_folder / "progress.json", "w", encoding="utf-8") as f:
-        json.dump(progress, f, indent=2)
 
-    with open(campaign_folder / "send_log.txt", "w", encoding="utf-8") as f:
-        f.write(f"Campaign: {campaign_name}\nAccount: {ACCOUNTS[account_num]}\nRecipients: {len(recipients)}\nCreated: {datetime.now()}\n{'='*60}\n\n")
+    conn = get_db_conn()
+    try:
+        c = conn.cursor()
+        c.execute(
+            """INSERT INTO campaigns (campaign_id, brief, progress)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (campaign_id) DO UPDATE
+               SET brief = EXCLUDED.brief, progress = EXCLUDED.progress""",
+            (campaign_id, json.dumps(brief), json.dumps(progress)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
     return campaign_id
 
@@ -339,42 +351,53 @@ def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, se
 # ---------------------------------------------------------------------------
 
 def init_db():
-    """Initialize email_opens.db on startup."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS opens (
-            id INTEGER PRIMARY KEY,
-            campaign_id TEXT,
-            recipient TEXT,
-            step INTEGER,
-            timestamp TEXT,
-            user_agent TEXT,
-            ip_address TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    """Create tables if they don't exist."""
+    conn = get_db_conn()
+    try:
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS opens (
+                id SERIAL PRIMARY KEY,
+                campaign_id TEXT,
+                recipient TEXT,
+                step INTEGER,
+                timestamp TEXT,
+                user_agent TEXT,
+                ip_address TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS campaigns (
+                campaign_id TEXT PRIMARY KEY,
+                brief JSONB NOT NULL DEFAULT '{}',
+                progress JSONB NOT NULL DEFAULT '{}',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def query_db(sql, params=(), one=False):
-    """Run a read query and return rows."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute(sql, params)
-    rows = c.fetchall()
-    conn.close()
-    return (rows[0] if rows else None) if one else rows
+    conn = get_db_conn()
+    try:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute(sql, params)
+        rows = c.fetchall()
+        return (rows[0] if rows else None) if one else rows
+    finally:
+        conn.close()
 
 
 def execute_db(sql, params=()):
-    """Run a write query."""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(sql, params)
-    conn.commit()
-    conn.close()
+    conn = get_db_conn()
+    try:
+        c = conn.cursor()
+        c.execute(sql, params)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -382,115 +405,96 @@ def execute_db(sql, params=()):
 # ---------------------------------------------------------------------------
 
 def get_dashboard_stats():
-    """Aggregate stats from opens table and campaigns folder."""
-    # Opens stats from DB
-    campaign_rows = query_db('''
-        SELECT
-            campaign_id,
-            COUNT(*) as open_count,
-            MAX(timestamp) as last_open
+    campaign_rows = query_db("""
+        SELECT campaign_id, COUNT(*) as open_count, MAX(timestamp) as last_open
         FROM opens
         GROUP BY campaign_id
         ORDER BY last_open DESC
-    ''')
+    """)
 
-    recent_opens = query_db('''
+    recent_opens = query_db("""
         SELECT campaign_id, recipient, step, timestamp
         FROM opens
         ORDER BY timestamp DESC
         LIMIT 10
-    ''')
+    """)
 
-    # Campaign folder stats
+    all_campaigns = query_db("""
+        SELECT campaign_id, brief, progress
+        FROM campaigns
+        ORDER BY created_at DESC
+    """)
+
     campaigns_info = []
     total_sent = 0
     all_recent_replies = []
-    if CAMPAIGNS_DIR.exists():
-        for folder in sorted(CAMPAIGNS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
-            if not folder.is_dir():
-                continue
-            brief_path = folder / "brief.json"
-            progress_path = folder / "progress.json"
-            if brief_path.exists() and progress_path.exists():
-                import json
-                with open(brief_path) as f:
-                    brief = json.load(f)
-                with open(progress_path) as f:
-                    progress = json.load(f)
-                sent = progress.get("sent", 0)
-                total_sent += sent
-                # Match opens from DB
-                opens_for_campaign = next(
-                    (r["open_count"] for r in campaign_rows if r["campaign_id"] == folder.name),
-                    0
-                )
-                open_rate = (
-                    f"{opens_for_campaign / sent * 100:.1f}%"
-                    if sent > 0 else "—"
-                )
-                campaign_status = progress.get("campaign_status", "active")
-                next_send_at = progress.get("next_step_send_at")
-                next_send_label = None
-                if campaign_status == "waiting" and next_send_at:
-                    try:
-                        dt = datetime.fromisoformat(next_send_at)
-                        delta = dt - datetime.now()
-                        if delta.total_seconds() > 0:
-                            hrs = int(delta.total_seconds() // 3600)
-                            if hrs >= 24:
-                                next_send_label = f"in {hrs // 24}d {hrs % 24}h"
-                            else:
-                                next_send_label = f"in {hrs}h"
-                        else:
-                            next_send_label = "due now"
-                    except Exception:
-                        next_send_label = "soon"
 
-                # Replied count + collect recent replies
-                replied_count = 0
-                for d in progress.get("send_details", []):
-                    if d.get("replied"):
-                        replied_count += 1
-                        all_recent_replies.append({
-                            "recipient": d["recipient"],
-                            "first_name": d.get("first_name", ""),
-                            "campaign_id": folder.name,
-                            "campaign_name": brief.get("name", folder.name),
-                            "replied_at": d.get("replied_at", ""),
-                            "reply_preview": d.get("reply_preview", ""),
-                            "reply_subject": d.get("reply_subject", ""),
-                        })
+    for row in all_campaigns:
+        brief = row["brief"] if isinstance(row["brief"], dict) else json.loads(row["brief"])
+        progress = row["progress"] if isinstance(row["progress"], dict) else json.loads(row["progress"])
+        cid = row["campaign_id"]
 
-                campaigns_info.append({
-                    "id": folder.name,
-                    "name": brief.get("name", folder.name),
-                    "account": brief.get("account_name", "—"),
-                    "status": brief.get("status", "active"),
-                    "campaign_status": campaign_status,
-                    "next_step_send_at": next_send_at,
-                    "next_send_label": next_send_label,
-                    "sent": sent,
-                    "total_recipients": progress.get("total_recipients", 0),
-                    "pending": progress.get("pending", 0),
-                    "opens": opens_for_campaign,
-                    "open_rate": open_rate,
-                    "replied": replied_count,
-                    "total_steps": brief.get("total_steps", 1),
-                    "current_step": progress.get("current_step", 1),
-                    "last_open": next(
-                        (r["last_open"] for r in campaign_rows if r["campaign_id"] == folder.name),
-                        None
-                    ),
+        sent = progress.get("sent", 0)
+        total_sent += sent
+
+        opens_for_campaign = next(
+            (r["open_count"] for r in campaign_rows if r["campaign_id"] == cid), 0
+        )
+        open_rate = f"{opens_for_campaign / sent * 100:.1f}%" if sent > 0 else "—"
+
+        campaign_status = progress.get("campaign_status", "active")
+        next_send_at = progress.get("next_step_send_at")
+        next_send_label = None
+        if campaign_status == "waiting" and next_send_at:
+            try:
+                dt = datetime.fromisoformat(next_send_at)
+                delta = dt - datetime.now()
+                if delta.total_seconds() > 0:
+                    hrs = int(delta.total_seconds() // 3600)
+                    next_send_label = f"in {hrs // 24}d {hrs % 24}h" if hrs >= 24 else f"in {hrs}h"
+                else:
+                    next_send_label = "due now"
+            except Exception:
+                next_send_label = "soon"
+
+        replied_count = 0
+        for d in progress.get("send_details", []):
+            if d.get("replied"):
+                replied_count += 1
+                all_recent_replies.append({
+                    "recipient": d["recipient"],
+                    "first_name": d.get("first_name", ""),
+                    "campaign_id": cid,
+                    "campaign_name": brief.get("name", cid),
+                    "replied_at": d.get("replied_at", ""),
+                    "reply_preview": d.get("reply_preview", ""),
+                    "reply_subject": d.get("reply_subject", ""),
                 })
 
-    # Only count opens for campaigns that exist in campaigns folder
+        campaigns_info.append({
+            "id": cid,
+            "name": brief.get("name", cid),
+            "account": brief.get("account_name", "—"),
+            "status": brief.get("status", "active"),
+            "campaign_status": campaign_status,
+            "next_step_send_at": next_send_at,
+            "next_send_label": next_send_label,
+            "sent": sent,
+            "total_recipients": progress.get("total_recipients", 0),
+            "pending": progress.get("pending", 0),
+            "opens": opens_for_campaign,
+            "open_rate": open_rate,
+            "replied": replied_count,
+            "total_steps": brief.get("total_steps", 1),
+            "current_step": progress.get("current_step", 1),
+            "last_open": next(
+                (r["last_open"] for r in campaign_rows if r["campaign_id"] == cid), None
+            ),
+        })
+
     existing_ids = {c["id"] for c in campaigns_info}
     total_opens = sum(r["open_count"] for r in campaign_rows if r["campaign_id"] in existing_ids)
-    avg_open_rate = (
-        f"{total_opens / total_sent * 100:.1f}%"
-        if total_sent > 0 else "—"
-    )
-
+    avg_open_rate = f"{total_opens / total_sent * 100:.1f}%" if total_sent > 0 else "—"
     all_recent_replies.sort(key=lambda x: x["replied_at"], reverse=True)
 
     return {
@@ -515,8 +519,6 @@ def dashboard():
 
 
 def get_tracker_url():
-    """Get tracker URL — Render URL > env var > network IP > localhost."""
-    # On Render, use the public service URL
     render_url = os.getenv("RENDER_EXTERNAL_URL", "").strip()
     if render_url:
         return render_url
@@ -564,7 +566,6 @@ def send_submit():
         flash("No valid email addresses found in recipients field.", "error")
         return redirect(url_for("send_form"))
 
-    # Build sequences from form (up to 3 steps)
     sequences = []
     subject_1 = request.form.get("subject_1", "").strip() or "Ken Research Outreach"
     body_1 = request.form.get("body_1", "").strip() or (
@@ -619,12 +620,11 @@ def send_submit():
 
 
 # ---------------------------------------------------------------------------
-# Tracking routes (mirrored from email_tracker.py)
+# Tracking routes
 # ---------------------------------------------------------------------------
 
 @app.route("/track/pixel", methods=["GET"])
 def track_pixel():
-    """Receive pixel request and log open."""
     campaign_id = request.args.get("campaign_id", "unknown")
     recipient = request.args.get("recipient", "unknown")
     step = request.args.get("step", "0")
@@ -633,89 +633,56 @@ def track_pixel():
     timestamp = datetime.utcnow().isoformat()
 
     execute_db(
-        '''INSERT INTO opens (campaign_id, recipient, step, timestamp, user_agent, ip_address)
-           VALUES (?, ?, ?, ?, ?, ?)''',
+        """INSERT INTO opens (campaign_id, recipient, step, timestamp, user_agent, ip_address)
+           VALUES (%s, %s, %s, %s, %s, %s)""",
         (campaign_id, recipient, int(step), timestamp, user_agent, ip_address),
     )
-
     return send_file(BytesIO(PIXEL), mimetype="image/png")
 
 
 @app.route("/api/opens", methods=["GET"])
 def get_opens():
-    """Query opens, optionally filtered by campaign_id and since timestamp."""
     campaign_id = request.args.get("campaign_id", "")
     since = request.args.get("since", "2000-01-01T00:00:00")
 
     if campaign_id:
         rows = query_db(
-            '''SELECT campaign_id, recipient, step, timestamp, user_agent, ip_address
-               FROM opens
-               WHERE campaign_id = ? AND timestamp > ?
-               ORDER BY timestamp DESC''',
+            """SELECT campaign_id, recipient, step, timestamp, user_agent, ip_address
+               FROM opens WHERE campaign_id = %s AND timestamp > %s
+               ORDER BY timestamp DESC""",
             (campaign_id, since),
         )
     else:
         rows = query_db(
-            '''SELECT campaign_id, recipient, step, timestamp, user_agent, ip_address
-               FROM opens
-               WHERE timestamp > ?
-               ORDER BY timestamp DESC''',
+            """SELECT campaign_id, recipient, step, timestamp, user_agent, ip_address
+               FROM opens WHERE timestamp > %s
+               ORDER BY timestamp DESC""",
             (since,),
         )
 
-    opens = [
-        {
-            "campaign_id": row["campaign_id"],
-            "recipient": row["recipient"],
-            "step": row["step"],
-            "timestamp": row["timestamp"],
-            "user_agent": row["user_agent"],
-            "ip_address": row["ip_address"],
-        }
-        for row in rows
-    ]
-    return jsonify({"opens": opens, "count": len(opens)})
+    return jsonify({"opens": [dict(r) for r in rows], "count": len(rows)})
 
 
 @app.route("/api/metrics/<campaign_id>", methods=["GET"])
 def api_metrics(campaign_id):
-    """JSON metrics for a specific campaign."""
-    import json
-
-    campaign_folder = CAMPAIGNS_DIR / campaign_id
-    brief, progress = {}, {}
-
-    if campaign_folder.exists():
-        brief_path = campaign_folder / "brief.json"
-        progress_path = campaign_folder / "progress.json"
-        if brief_path.exists():
-            with open(brief_path) as f:
-                brief = json.load(f)
-        if progress_path.exists():
-            with open(progress_path) as f:
-                progress = json.load(f)
-
-    opens_rows = query_db(
-        "SELECT COUNT(*) as cnt, MAX(timestamp) as last_open FROM opens WHERE campaign_id = ?",
-        (campaign_id,),
-        one=True,
+    brief = _load_brief(campaign_id)
+    progress = _load_progress(campaign_id)
+    opens_row = query_db(
+        "SELECT COUNT(*) as cnt, MAX(timestamp) as last_open FROM opens WHERE campaign_id = %s",
+        (campaign_id,), one=True,
     )
-    open_count = opens_rows["cnt"] if opens_rows else 0
-    last_open = opens_rows["last_open"] if opens_rows else None
+    open_count = opens_row["cnt"] if opens_row else 0
     total_sent = progress.get("total_recipients", 0)
     open_rate = f"{open_count / total_sent * 100:.1f}%" if total_sent > 0 else "0%"
-
     return jsonify({
         "campaign_id": campaign_id,
         "campaign_name": brief.get("name", "Unknown"),
         "account": brief.get("account_name", "Unknown"),
         "created_at": brief.get("created_at", "N/A"),
-        "status": brief.get("status", "unknown"),
         "total_sent": total_sent,
         "opens": open_count,
         "open_rate": open_rate,
-        "last_open": last_open,
+        "last_open": opens_row["last_open"] if opens_row else None,
         "pending": progress.get("pending", 0),
         "failed": progress.get("failed", 0),
     })
@@ -723,43 +690,29 @@ def api_metrics(campaign_id):
 
 @app.route("/resume/<campaign_id>", methods=["POST"])
 def resume_campaign(campaign_id):
-    """Resume a campaign from its persisted state.
-
-    Safe against duplicates: uses steps_completed per recipient.
-    Safe against early sends: respects next_step_send_at unless user explicitly clicks Resume.
-    Manual Resume = user override; skips remaining wait and sends immediately.
-    """
     try:
-        campaign_folder = CAMPAIGNS_DIR / campaign_id
-        if not campaign_folder.exists():
+        progress = _load_progress(campaign_id)
+        brief = _load_brief(campaign_id)
+
+        if not progress or not brief:
             flash(f"Campaign '{campaign_id}' not found.", "error")
             return redirect(url_for("dashboard"))
 
-        progress_path = campaign_folder / "progress.json"
-        brief_path = campaign_folder / "brief.json"
-        if not progress_path.exists() or not brief_path.exists():
-            flash("Campaign data missing.", "error")
-            return redirect(url_for("dashboard"))
-
-        progress = _load_progress(progress_path)
-        with open(brief_path, encoding="utf-8") as f:
-            brief = json.load(f)
-
         campaign_status = progress.get("campaign_status", "active")
         if campaign_status == "completed":
-            flash("Campaign already completed — all steps sent.", "error")
+            flash("Campaign already completed -- all steps sent.", "error")
             return redirect(url_for("dashboard"))
 
         current_step = progress.get("current_step", 1)
         all_sequences = brief.get("email_sequences", [])
 
-        # Recipients who still need the current step (duplicate-send guard)
         pending_recipients = [
             {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
             for d in progress.get("send_details", [])
-            if current_step not in d.get("steps_completed", []) and d.get("status") != "failed"
+            if current_step not in d.get("steps_completed", [])
+            and d.get("status") != "failed"
+            and not d.get("replied")
         ]
-        # Fallback for old-format campaigns
         if not pending_recipients:
             pending_recipients = [
                 {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
@@ -774,31 +727,23 @@ def resume_campaign(campaign_id):
         account_num = brief.get("account_number", "1")
         tracker_url = get_tracker_url()
 
-        # Build remaining sequences from current_step onward
-        remaining = [s for s in all_sequences if s["step"] >= current_step]
-        if not remaining:
-            remaining = all_sequences
-
-        # Manual Resume = send current step NOW, no delay
-        # Strip next_step_send_at so worker sends immediately
+        remaining = [s for s in all_sequences if s["step"] >= current_step] or all_sequences
         remaining = [dict(remaining[0], delay_days=0)] + remaining[1:]
 
-        # Clear waiting state so dashboard updates immediately
         progress["campaign_status"] = "active"
         progress["next_step_send_at"] = None
         progress["last_update"] = datetime.now().isoformat()
-        _save_progress(progress_path, progress)
+        _save_progress(campaign_id, progress)
 
-        thread = threading.Thread(
+        threading.Thread(
             target=bulk_send_worker,
             args=(campaign_id, account_num, pending_recipients, remaining, tracker_url),
             daemon=True,
-        )
-        thread.start()
+        ).start()
 
         if campaign_status == "waiting":
             flash(f"'{campaign_id}': Step {current_step} sending now "
-                  f"({len(pending_recipients)} recipients) — scheduled wait overridden.", "success")
+                  f"({len(pending_recipients)} recipients) -- scheduled wait overridden.", "success")
         else:
             flash(f"'{campaign_id}': Resumed Step {current_step} "
                   f"({len(pending_recipients)} pending recipients).", "success")
@@ -810,7 +755,6 @@ def resume_campaign(campaign_id):
 
 @app.route("/health", methods=["GET"])
 def health():
-    """Health check endpoint."""
     return jsonify({"status": "ok"}), 200
 
 
@@ -820,49 +764,105 @@ def health():
 
 @app.template_filter("friendly_dt")
 def friendly_dt(value):
-    """Format ISO timestamp to a readable date/time."""
     if not value:
         return "—"
     try:
-        dt = datetime.fromisoformat(value.replace("Z", ""))
+        dt = datetime.fromisoformat(str(value).replace("Z", ""))
         return dt.strftime("%d %b %Y, %H:%M")
     except Exception:
         return value
 
 
 # ---------------------------------------------------------------------------
-# Startup
+# Startup workers
 # ---------------------------------------------------------------------------
 
-def reply_checker_worker():
-    """Background thread: polls sender inboxes every 10 min for replies from campaign recipients.
+def auto_resume_pending_campaigns():
+    """On startup, resume active/waiting campaigns from Supabase state."""
+    try:
+        all_campaigns = query_db("SELECT campaign_id, brief, progress FROM campaigns")
+    except Exception as e:
+        print(f"[AUTO-RESUME] DB query failed: {e}")
+        return
 
-    When a reply is found:
-    - Sets replied=True, replied_at, reply_preview on the recipient in progress.json
-    - bulk_send_worker skips replied recipients automatically on next step
-    """
+    resumed = 0
+    for row in all_campaigns:
+        try:
+            brief = row["brief"] if isinstance(row["brief"], dict) else json.loads(row["brief"])
+            progress = row["progress"] if isinstance(row["progress"], dict) else json.loads(row["progress"])
+            campaign_id = row["campaign_id"]
+
+            campaign_status = progress.get("campaign_status", "active")
+            if campaign_status == "completed":
+                continue
+
+            current_step = progress.get("current_step", 1)
+            all_sequences = brief.get("email_sequences", [])
+
+            pending = [
+                {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
+                for d in progress.get("send_details", [])
+                if current_step not in d.get("steps_completed", [])
+                and d.get("status") != "failed"
+                and not d.get("replied")
+            ]
+            if not pending:
+                pending = [
+                    {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
+                    for d in progress.get("send_details", [])
+                    if d.get("status") == "pending"
+                ]
+            if not pending:
+                continue
+
+            account_num = brief.get("account_number", "1")
+            tracker_url = get_tracker_url()
+            remaining_seqs = [s for s in all_sequences if s["step"] >= current_step] or all_sequences
+
+            if campaign_status == "waiting":
+                try:
+                    label = datetime.fromisoformat(progress.get("next_step_send_at", "")).strftime("%Y-%m-%d %H:%M")
+                except Exception:
+                    label = "scheduled time"
+                print(f"[AUTO-RESUME] {campaign_id}: Step {current_step} waiting until {label}, {len(pending)} recipients.")
+            else:
+                remaining_seqs = [dict(remaining_seqs[0], delay_days=0)] + remaining_seqs[1:]
+                print(f"[AUTO-RESUME] {campaign_id}: Step {current_step} active, resuming {len(pending)} recipients.")
+
+            threading.Thread(
+                target=bulk_send_worker,
+                args=(campaign_id, account_num, pending, remaining_seqs, tracker_url),
+                daemon=True,
+            ).start()
+            resumed += 1
+
+        except Exception as e:
+            print(f"[AUTO-RESUME ERROR] {row.get('campaign_id', '?')}: {e}")
+
+    if resumed:
+        print(f"[OK] Auto-resumed {resumed} campaign(s)")
+
+
+def reply_checker_worker():
+    """Background thread: polls sender inboxes every 60s for replies."""
     import time
     from send_email import read_inbox
 
     while True:
-        time.sleep(60)  # 60 seconds between each check
-        if not CAMPAIGNS_DIR.exists():
+        time.sleep(60)
+        try:
+            all_campaigns = query_db("SELECT campaign_id, brief, progress FROM campaigns")
+        except Exception:
             continue
 
-        for folder in CAMPAIGNS_DIR.iterdir():
-            if not folder.is_dir():
-                continue
-            progress_path = folder / "progress.json"
-            brief_path = folder / "brief.json"
-            if not (progress_path.exists() and brief_path.exists()):
-                continue
+        for row in all_campaigns:
             try:
-                progress = _load_progress(progress_path)
+                brief = row["brief"] if isinstance(row["brief"], dict) else json.loads(row["brief"])
+                progress = row["progress"] if isinstance(row["progress"], dict) else json.loads(row["progress"])
+                campaign_id = row["campaign_id"]
+
                 if progress.get("campaign_status") == "completed":
                     continue
-
-                with open(brief_path, encoding="utf-8") as f:
-                    brief = json.load(f)
 
                 account_num = brief.get("account_number", "1")
                 try:
@@ -870,7 +870,6 @@ def reply_checker_worker():
                 except Exception:
                     since_dt = None
 
-                # Only check recipients who haven't replied and aren't failed
                 unreplied = {
                     d["recipient"]
                     for d in progress.get("send_details", [])
@@ -892,98 +891,15 @@ def reply_checker_worker():
                             detail["reply_preview"] = msg["body_preview"]
                             detail["reply_subject"] = msg["subject"]
                             updated = True
-                            print(f"[REPLY] {folder.name}: reply from {from_email} at {msg['received_at']}")
+                            print(f"[REPLY] {campaign_id}: reply from {from_email} at {msg['received_at']}")
                             break
 
                 if updated:
                     progress["last_update"] = datetime.now().isoformat()
-                    _save_progress(progress_path, progress)
+                    _save_progress(campaign_id, progress)
 
             except Exception as e:
-                print(f"[REPLY CHECK ERROR] {folder.name}: {e}")
-
-
-def auto_resume_pending_campaigns():
-    """On startup, resume active/waiting campaigns from their persisted state.
-
-    active  — app was stopped mid-send: resume current step immediately.
-    waiting — app was stopped between steps: sleep until next_step_send_at,
-              then send. Respects the scheduled delay so no premature sends.
-    completed — skip entirely.
-    """
-    if not CAMPAIGNS_DIR.exists():
-        return
-    resumed = 0
-    for folder in CAMPAIGNS_DIR.iterdir():
-        if not folder.is_dir():
-            continue
-        progress_path = folder / "progress.json"
-        brief_path = folder / "brief.json"
-        if not (progress_path.exists() and brief_path.exists()):
-            continue
-        try:
-            progress = _load_progress(progress_path)
-            with open(brief_path, encoding="utf-8") as f:
-                brief = json.load(f)
-
-            campaign_status = progress.get("campaign_status", "active")
-            if campaign_status == "completed":
-                continue
-
-            current_step = progress.get("current_step", 1)
-            all_sequences = brief.get("email_sequences", [])
-
-            # Recipients who still need the current step
-            pending = [
-                {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
-                for d in progress.get("send_details", [])
-                if current_step not in d.get("steps_completed", []) and d.get("status") != "failed"
-            ]
-            # Fallback for old-format campaigns
-            if not pending:
-                pending = [
-                    {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
-                    for d in progress.get("send_details", [])
-                    if d.get("status") == "pending"
-                ]
-            if not pending:
-                continue
-
-            account_num = brief.get("account_number", "1")
-            tracker_url = get_tracker_url()
-            remaining_seqs = [s for s in all_sequences if s["step"] >= current_step]
-            if not remaining_seqs:
-                remaining_seqs = all_sequences
-
-            if campaign_status == "waiting":
-                # Preserve the scheduled send time — worker will sleep until then.
-                # next_step_send_at is already in progress.json; worker reads it.
-                next_send_at = progress.get("next_step_send_at", "")
-                try:
-                    dt = datetime.fromisoformat(next_send_at)
-                    label = dt.strftime("%Y-%m-%d %H:%M")
-                except Exception:
-                    label = "scheduled time"
-                print(f"[AUTO-RESUME] {folder.name}: Step {current_step} waiting until {label}, "
-                      f"{len(pending)} recipients queued.")
-            else:
-                # Active but interrupted — send current step immediately (no delay)
-                remaining_seqs = [dict(remaining_seqs[0], delay_days=0)] + remaining_seqs[1:]
-                print(f"[AUTO-RESUME] {folder.name}: Step {current_step} active, "
-                      f"resuming {len(pending)} recipients immediately.")
-
-            thread = threading.Thread(
-                target=bulk_send_worker,
-                args=(folder.name, account_num, pending, remaining_seqs, tracker_url),
-                daemon=True,
-            )
-            thread.start()
-            resumed += 1
-
-        except Exception as e:
-            print(f"[AUTO-RESUME ERROR] {folder.name}: {e}")
-    if resumed:
-        print(f"[OK] Auto-resumed {resumed} campaign(s)")
+                print(f"[REPLY CHECK ERROR] {row.get('campaign_id', '?')}: {e}")
 
 
 # Run on startup regardless of whether launched via Python or gunicorn
