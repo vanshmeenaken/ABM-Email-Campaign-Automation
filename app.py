@@ -758,6 +758,45 @@ def health():
     return jsonify({"status": "ok"}), 200
 
 
+@app.route("/debug/reply/<campaign_id>", methods=["GET"])
+def debug_reply(campaign_id):
+    """Debug endpoint: manually run inbox check for a campaign and return raw results."""
+    from send_email import read_inbox
+    try:
+        brief = _load_brief(campaign_id)
+        progress = _load_progress(campaign_id)
+
+        if not brief:
+            return jsonify({"error": f"Campaign '{campaign_id}' not found"}), 404
+
+        account_num = brief.get("account_number", "1")
+        created_at = brief.get("created_at", "")
+        try:
+            since_dt = datetime.fromisoformat(created_at)
+        except Exception:
+            since_dt = None
+
+        recipients_in_campaign = [
+            d["recipient"] for d in progress.get("send_details", [])
+        ]
+
+        messages = read_inbox(account_num, since_dt)
+
+        matches = [m for m in messages if m["from_email"] in recipients_in_campaign]
+
+        return jsonify({
+            "campaign_id": campaign_id,
+            "account_num": account_num,
+            "since": created_at,
+            "recipients_in_campaign": recipients_in_campaign,
+            "total_inbox_messages_fetched": len(messages),
+            "inbox_messages": messages,
+            "matching_replies": matches,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ---------------------------------------------------------------------------
 # Template filters
 # ---------------------------------------------------------------------------
