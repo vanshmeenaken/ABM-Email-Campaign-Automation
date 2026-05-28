@@ -142,6 +142,56 @@ def send_email(account_num, recipient_email, subject="Test Email", body="This is
         print(f"[ERROR] Error sending email: {str(e)}")
         return None
 
+def read_inbox(account_num, since_dt=None):
+    """Read inbox messages for a sender account since a given datetime.
+
+    Returns list of dicts:
+      {"from_email", "received_at", "subject", "body_preview"}
+    """
+    if account_num not in ACCOUNTS:
+        return []
+    account = ACCOUNTS[account_num]
+    access_token = get_access_token(account["client_id"], account["client_secret"])
+    if not access_token:
+        return []
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+    params = {
+        "$select": "from,subject,receivedDateTime,bodyPreview",
+        "$top": "100",
+        "$orderby": "receivedDateTime desc",
+    }
+    if since_dt:
+        since_str = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        params["$filter"] = f"receivedDateTime ge {since_str}"
+
+    try:
+        resp = requests.get(
+            f"https://graph.microsoft.com/v1.0/users/{account['email']}/mailFolders/Inbox/messages",
+            headers=headers,
+            params=params,
+        )
+        if resp.status_code == 200:
+            return [
+                {
+                    "from_email": m.get("from", {}).get("emailAddress", {}).get("address", "").lower(),
+                    "received_at": m.get("receivedDateTime", ""),
+                    "subject": m.get("subject", ""),
+                    "body_preview": m.get("bodyPreview", "")[:200],
+                }
+                for m in resp.json().get("value", [])
+            ]
+        else:
+            print(f"[INBOX] Account {account_num} read failed: {resp.status_code} {resp.text[:200]}")
+            return []
+    except Exception as e:
+        print(f"[INBOX ERROR] Account {account_num}: {e}")
+        return []
+
+
 def main():
     """Command line interface"""
     

@@ -167,13 +167,19 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                 d["recipient"] for d in prog["send_details"]
                 if d.get("status") == "failed"
             }
+            replied_emails = {
+                d["recipient"] for d in prog["send_details"]
+                if d.get("replied")
+            }
         except Exception:
-            already_sent, failed_emails = set(), set()
+            already_sent, failed_emails, replied_emails = set(), set(), set()
 
-        # recipients is a list of {"email": ..., "first_name": ...}
+        # recipients is a list of {"email": ..., "first_name": ..., "company": ...}
         need_step = [
             r for r in recipients
-            if r["email"] not in already_sent and r["email"] not in failed_emails
+            if r["email"] not in already_sent
+            and r["email"] not in failed_emails
+            and r["email"] not in replied_emails
         ]
 
         print(f"[{campaign_id}] Step {step_num}: sending to {len(need_step)} recipients "
@@ -398,6 +404,7 @@ def get_dashboard_stats():
     # Campaign folder stats
     campaigns_info = []
     total_sent = 0
+    all_recent_replies = []
     if CAMPAIGNS_DIR.exists():
         for folder in sorted(CAMPAIGNS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
             if not folder.is_dir():
@@ -439,6 +446,21 @@ def get_dashboard_stats():
                     except Exception:
                         next_send_label = "soon"
 
+                # Replied count + collect recent replies
+                replied_count = 0
+                for d in progress.get("send_details", []):
+                    if d.get("replied"):
+                        replied_count += 1
+                        all_recent_replies.append({
+                            "recipient": d["recipient"],
+                            "first_name": d.get("first_name", ""),
+                            "campaign_id": folder.name,
+                            "campaign_name": brief.get("name", folder.name),
+                            "replied_at": d.get("replied_at", ""),
+                            "reply_preview": d.get("reply_preview", ""),
+                            "reply_subject": d.get("reply_subject", ""),
+                        })
+
                 campaigns_info.append({
                     "id": folder.name,
                     "name": brief.get("name", folder.name),
@@ -452,6 +474,7 @@ def get_dashboard_stats():
                     "pending": progress.get("pending", 0),
                     "opens": opens_for_campaign,
                     "open_rate": open_rate,
+                    "replied": replied_count,
                     "total_steps": brief.get("total_steps", 1),
                     "current_step": progress.get("current_step", 1),
                     "last_open": next(
@@ -468,6 +491,8 @@ def get_dashboard_stats():
         if total_sent > 0 else "—"
     )
 
+    all_recent_replies.sort(key=lambda x: x["replied_at"], reverse=True)
+
     return {
         "total_campaigns": len(campaigns_info),
         "total_sent": total_sent,
@@ -475,6 +500,7 @@ def get_dashboard_stats():
         "avg_open_rate": avg_open_rate,
         "campaigns": campaigns_info,
         "recent_opens": [dict(r) for r in recent_opens],
+        "recent_replies": all_recent_replies[:10],
     }
 
 
@@ -808,6 +834,75 @@ def friendly_dt(value):
 # Startup
 # ---------------------------------------------------------------------------
 
+def reply_checker_worker():
+    """Background thread: polls sender inboxes every 10 min for replies from campaign recipients.
+
+    When a reply is found:
+    - Sets replied=True, replied_at, reply_preview on the recipient in progress.json
+    - bulk_send_worker skips replied recipients automatically on next step
+    """
+    import time
+    from send_email import read_inbox
+
+    while True:
+        time.sleep(600)  # 10 minutes between each check
+        if not CAMPAIGNS_DIR.exists():
+            continue
+
+        for folder in CAMPAIGNS_DIR.iterdir():
+            if not folder.is_dir():
+                continue
+            progress_path = folder / "progress.json"
+            brief_path = folder / "brief.json"
+            if not (progress_path.exists() and brief_path.exists()):
+                continue
+            try:
+                progress = _load_progress(progress_path)
+                if progress.get("campaign_status") == "completed":
+                    continue
+
+                with open(brief_path, encoding="utf-8") as f:
+                    brief = json.load(f)
+
+                account_num = brief.get("account_number", "1")
+                try:
+                    since_dt = datetime.fromisoformat(brief.get("created_at", ""))
+                except Exception:
+                    since_dt = None
+
+                # Only check recipients who haven't replied and aren't failed
+                unreplied = {
+                    d["recipient"]
+                    for d in progress.get("send_details", [])
+                    if not d.get("replied") and d.get("status") != "failed"
+                }
+                if not unreplied:
+                    continue
+
+                messages = read_inbox(account_num, since_dt)
+                updated = False
+                for msg in messages:
+                    from_email = msg["from_email"]
+                    if from_email not in unreplied:
+                        continue
+                    for detail in progress["send_details"]:
+                        if detail["recipient"] == from_email and not detail.get("replied"):
+                            detail["replied"] = True
+                            detail["replied_at"] = msg["received_at"]
+                            detail["reply_preview"] = msg["body_preview"]
+                            detail["reply_subject"] = msg["subject"]
+                            updated = True
+                            print(f"[REPLY] {folder.name}: reply from {from_email} at {msg['received_at']}")
+                            break
+
+                if updated:
+                    progress["last_update"] = datetime.now().isoformat()
+                    _save_progress(progress_path, progress)
+
+            except Exception as e:
+                print(f"[REPLY CHECK ERROR] {folder.name}: {e}")
+
+
 def auto_resume_pending_campaigns():
     """On startup, resume active/waiting campaigns from their persisted state.
 
@@ -894,6 +989,7 @@ def auto_resume_pending_campaigns():
 # Run on startup regardless of whether launched via Python or gunicorn
 init_db()
 auto_resume_pending_campaigns()
+threading.Thread(target=reply_checker_worker, daemon=True).start()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
