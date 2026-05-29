@@ -157,7 +157,9 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
             send_at = datetime.fromisoformat(stored_send_at)
         else:
             delay_days = seq.get("delay_days", 0)
-            send_at = datetime.now() + timedelta(days=delay_days) if delay_days > 0 else datetime.now()
+            delay_minutes = seq.get("delay_minutes", 0)
+            total_seconds = delay_days * 86400 + delay_minutes * 60
+            send_at = datetime.now() + timedelta(seconds=total_seconds) if total_seconds > 0 else datetime.now()
 
         remaining = (send_at - datetime.now()).total_seconds()
         if remaining > 0:
@@ -450,8 +452,15 @@ def get_dashboard_stats():
                 dt = datetime.fromisoformat(next_send_at)
                 delta = dt - datetime.now()
                 if delta.total_seconds() > 0:
-                    hrs = int(delta.total_seconds() // 3600)
-                    next_send_label = f"in {hrs // 24}d {hrs % 24}h" if hrs >= 24 else f"in {hrs}h"
+                    total_secs = int(delta.total_seconds())
+                    hrs = total_secs // 3600
+                    mins = (total_secs % 3600) // 60
+                    if hrs >= 24:
+                        next_send_label = f"in {hrs // 24}d {hrs % 24}h"
+                    elif hrs > 0:
+                        next_send_label = f"in {hrs}h {mins}m"
+                    else:
+                        next_send_label = f"in {mins}m"
                 else:
                     next_send_label = "due now"
             except Exception:
@@ -579,12 +588,17 @@ def send_submit():
         bod = request.form.get(f"body_{step_num}", "").strip()
         if subj or bod:
             try:
-                delay = max(1, int(request.form.get(f"delay_days_{step_num}", "2") or "2"))
+                delay_days = max(0, int(request.form.get(f"delay_days_{step_num}", "2") or "0"))
             except (ValueError, TypeError):
-                delay = 2
+                delay_days = 2
+            try:
+                delay_minutes = max(0, int(request.form.get(f"delay_minutes_{step_num}", "0") or "0"))
+            except (ValueError, TypeError):
+                delay_minutes = 0
             sequences.append({
                 "step": step_num,
-                "delay_days": delay,
+                "delay_days": delay_days,
+                "delay_minutes": delay_minutes,
                 "subject": subj or subject_1,
                 "body": bod or body_1,
             })
