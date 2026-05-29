@@ -278,7 +278,8 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                 print(f"[{campaign_id}] All {len(sequences)} step(s) complete.")
             else:
                 next_seq = sequences[seq_idx + 1]
-                next_send_at = datetime.now() + timedelta(days=next_seq.get("delay_days", 1))
+                next_delay_secs = next_seq.get("delay_days", 0) * 86400 + next_seq.get("delay_minutes", 0) * 60
+                next_send_at = datetime.now() + timedelta(seconds=next_delay_secs)
                 prog["campaign_status"] = "waiting"
                 prog["current_step"] = next_seq["step"]
                 prog["next_step_send_at"] = next_send_at.isoformat()
