@@ -24,6 +24,7 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+BOUNCIFY_API_KEY = os.getenv("BOUNCIFY_API_KEY", "")
 
 # 1x1 transparent PNG pixel
 PIXEL = (
@@ -133,6 +134,38 @@ def personalize(text, first_name, company=""):
 
 
 # ---------------------------------------------------------------------------
+# Email validation
+# ---------------------------------------------------------------------------
+
+def validate_email_bouncify(email):
+    """Validate email via Bouncify. Returns (status, result).
+    status: 'valid' | 'invalid' | 'risky' | 'unknown'
+    """
+    if not BOUNCIFY_API_KEY:
+        return "unknown", "no_api_key"
+    try:
+        import requests as req
+        resp = req.get(
+            "https://api.bouncify.io/v1/verify",
+            params={"apikey": BOUNCIFY_API_KEY, "email": email},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            result = resp.json().get("result", "unknown")
+            if result == "deliverable":
+                return "valid", result
+            elif result == "undeliverable":
+                return "invalid", result
+            elif result == "risky":
+                return "risky", result
+            else:
+                return "unknown", result
+        return "unknown", f"http_{resp.status_code}"
+    except Exception:
+        return "unknown", "error"
+
+
+# ---------------------------------------------------------------------------
 # Campaign worker
 # ---------------------------------------------------------------------------
 
@@ -187,7 +220,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
         except Exception:
             pass
 
-        # Duplicate-send guard + replied guard
+        # Duplicate-send guard + replied guard + skipped guard
         try:
             prog = _load_progress(campaign_id)
             already_sent = {
@@ -202,26 +235,54 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                 d["recipient"] for d in prog["send_details"]
                 if d.get("replied")
             }
+            skipped_emails = {
+                d["recipient"] for d in prog["send_details"]
+                if d.get("status") == "skipped"
+            }
         except Exception:
-            already_sent, failed_emails, replied_emails = set(), set(), set()
+            already_sent, failed_emails, replied_emails, skipped_emails = set(), set(), set(), set()
 
         need_step = [
             r for r in recipients
             if r["email"] not in already_sent
             and r["email"] not in failed_emails
             and r["email"] not in replied_emails
+            and r["email"] not in skipped_emails
         ]
 
         print(f"[{campaign_id}] Step {step_num}: sending to {len(need_step)} recipients "
               f"(skipping {len(recipients) - len(need_step)} already sent/replied)...")
 
+        sends_attempted = 0
         for i, rec in enumerate(need_step):
             email = rec["email"]
             first_name = rec.get("first_name", "")
             company = rec.get("company", "")
             try:
-                if i > 0:
+                # Validate on Step 1 only (uses Bouncify credit once per email)
+                if step_num == 1 and BOUNCIFY_API_KEY:
+                    val_status, val_result = validate_email_bouncify(email)
+                    print(f"[VALIDATE] [{val_status.upper()}] {email}: {val_result}")
+                    try:
+                        prog = _load_progress(campaign_id)
+                        for detail in prog["send_details"]:
+                            if detail["recipient"] == email:
+                                detail["validation_status"] = val_status
+                                detail["validation_result"] = val_result
+                                if val_status in ("invalid", "risky"):
+                                    detail["status"] = "skipped"
+                                    prog["pending"] = max(0, prog.get("pending", 1) - 1)
+                                break
+                        _save_progress(campaign_id, prog)
+                    except Exception:
+                        pass
+                    if val_status in ("invalid", "risky"):
+                        print(f"[VALIDATE] Skipping {email} ({val_status})")
+                        continue
+
+                if sends_attempted > 0:
                     time.sleep(random.uniform(240, 300))  # 4-5 min anti-spam gap
+                sends_attempted += 1
 
                 p_subject = personalize(subject, first_name, company)
                 p_body = personalize(body, first_name, company)
@@ -481,6 +542,17 @@ def get_dashboard_stats():
                     "reply_subject": d.get("reply_subject", ""),
                 })
 
+        send_details = progress.get("send_details", [])
+        validation = {
+            "valid":       sum(1 for d in send_details if d.get("validation_status") == "valid"),
+            "invalid":     sum(1 for d in send_details if d.get("validation_status") == "invalid"),
+            "risky":       sum(1 for d in send_details if d.get("validation_status") == "risky"),
+            "unknown":     sum(1 for d in send_details if d.get("validation_status") == "unknown"),
+            "unvalidated": sum(1 for d in send_details if not d.get("validation_status")),
+        }
+        validation["skipped"] = validation["invalid"] + validation["risky"]
+        validation["checked"] = len(send_details) - validation["unvalidated"]
+
         campaigns_info.append({
             "id": cid,
             "name": brief.get("name", cid),
@@ -500,6 +572,7 @@ def get_dashboard_stats():
             "last_open": next(
                 (r["last_open"] for r in campaign_rows if r["campaign_id"] == cid), None
             ),
+            "validation": validation,
         })
 
     existing_ids = {c["id"] for c in campaigns_info}
@@ -725,7 +798,7 @@ def resume_campaign(campaign_id):
             {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
             for d in progress.get("send_details", [])
             if current_step not in d.get("steps_completed", [])
-            and d.get("status") != "failed"
+            and d.get("status") not in ("failed", "skipped")
             and not d.get("replied")
         ]
         if not pending_recipients:
@@ -766,6 +839,22 @@ def resume_campaign(campaign_id):
     except Exception as e:
         flash(f"Error resuming: {str(e)}", "error")
     return redirect(url_for("dashboard"))
+
+
+@app.route("/campaign/<campaign_id>")
+def campaign_detail(campaign_id):
+    brief = _load_brief(campaign_id)
+    progress = _load_progress(campaign_id)
+    if not brief:
+        flash(f"Campaign '{campaign_id}' not found.", "error")
+        return redirect(url_for("dashboard"))
+    return render_template(
+        "campaign_detail.html",
+        brief=brief,
+        progress=progress,
+        campaign_id=campaign_id,
+        recipients=progress.get("send_details", []),
+    )
 
 
 @app.route("/health", methods=["GET"])
@@ -886,7 +975,7 @@ def auto_resume_pending_campaigns():
                 {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
                 for d in progress.get("send_details", [])
                 if current_step not in d.get("steps_completed", [])
-                and d.get("status") != "failed"
+                and d.get("status") not in ("failed", "skipped")
                 and not d.get("replied")
             ]
             if not pending:

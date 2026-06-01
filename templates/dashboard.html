@@ -84,6 +84,14 @@
             <td class="px-6 py-3">
               <p class="font-medium text-gray-800 truncate max-w-[160px]" title="{{ c.name }}">{{ c.name }}</p>
               <p class="text-xs text-gray-400 truncate max-w-[160px]" title="{{ c.id }}">{{ c.id }}</p>
+              {% if c.validation.checked > 0 %}
+              <p class="text-xs mt-0.5">
+                <span class="text-green-600 font-medium">&#10003; {{ c.validation.valid }} valid</span>
+                {% if c.validation.skipped > 0 %}
+                <span class="text-red-500 font-medium ml-1">&#10007; {{ c.validation.skipped }} skipped</span>
+                {% endif %}
+              </p>
+              {% endif %}
               {% if c.total_steps > 1 %}
               <span class="text-xs font-medium
                 {% if c.campaign_status == 'completed' %}text-green-600
@@ -98,6 +106,7 @@
                 {% endif %}
               </span>
               {% endif %}
+              <a href="/campaign/{{ c.id }}" class="block text-xs text-blue-500 hover:underline mt-0.5">Details &rarr;</a>
             </td>
             <td class="px-6 py-3 text-gray-600 whitespace-nowrap">{{ c.account }}</td>
             <td class="px-6 py-3 text-center text-gray-800 font-medium">{{ c.sent }}/{{ c.total_recipients }}</td>

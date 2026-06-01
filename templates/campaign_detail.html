@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Campaign Detail - {{ brief.name }}{% endblock %}
+{% block page_title %}Campaign Detail{% endblock %}
+
+{% block content %}
+
+<div class="mb-4">
+  <a href="{{ url_for('dashboard') }}" class="text-sm text-blue-500 hover:underline">&larr; Back to Dashboard</a>
+</div>
+
+<!-- Campaign header -->
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-5 mb-6">
+  <div class="flex items-start justify-between flex-wrap gap-4">
+    <div>
+      <h2 class="text-lg font-semibold text-gray-800">{{ brief.name }}</h2>
+      <p class="text-xs text-gray-400 font-mono mt-0.5">{{ campaign_id }}</p>
+      <p class="text-xs text-gray-500 mt-1">{{ brief.account_name }} &mdash; {{ brief.total_steps }}-step campaign</p>
+    </div>
+    <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold
+      {% if progress.campaign_status == 'completed' %}bg-green-100 text-green-700
+      {% elif progress.campaign_status == 'waiting' %}bg-amber-100 text-amber-700
+      {% else %}bg-blue-100 text-blue-700{% endif %}">
+      {{ progress.campaign_status | capitalize }}
+    </span>
+  </div>
+</div>
+
+<!-- Validation summary cards -->
+{% set valid_count = recipients | selectattr('validation_status', 'equalto', 'valid') | list | length %}
+{% set invalid_count = recipients | selectattr('validation_status', 'equalto', 'invalid') | list | length %}
+{% set risky_count = recipients | selectattr('validation_status', 'equalto', 'risky') | list | length %}
+{% set unknown_count = recipients | selectattr('validation_status', 'equalto', 'unknown') | list | length %}
+{% set unvalidated_count = recipients | rejectattr('validation_status') | list | length %}
+
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Total</p>
+    <p class="text-2xl font-bold text-gray-800">{{ recipients | length }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Valid</p>
+    <p class="text-2xl font-bold text-green-600">{{ valid_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Invalid</p>
+    <p class="text-2xl font-bold text-red-500">{{ invalid_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Risky</p>
+    <p class="text-2xl font-bold text-orange-500">{{ risky_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Unknown</p>
+    <p class="text-2xl font-bold text-gray-400">{{ unknown_count + unvalidated_count }}</p>
+  </div>
+</div>
+
+<!-- Per-recipient table -->
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-100">
+    <h3 class="font-semibold text-gray-800">Recipient Breakdown</h3>
+    <p class="text-xs text-gray-400 mt-0.5">Validation result and send status per contact</p>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+        <tr>
+          <th class="px-6 py-3 text-left font-medium">Email</th>
+          <th class="px-6 py-3 text-left font-medium">Name</th>
+          <th class="px-6 py-3 text-left font-medium">Company</th>
+          <th class="px-6 py-3 text-center font-medium">Validation</th>
+          <th class="px-6 py-3 text-center font-medium">Status</th>
+          <th class="px-6 py-3 text-center font-medium">Steps Done</th>
+          <th class="px-6 py-3 text-center font-medium">Replied</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for r in recipients %}
+        <tr class="hover:bg-gray-50 transition">
+          <td class="px-6 py-3 font-mono text-xs text-gray-700">{{ r.recipient }}</td>
+          <td class="px-6 py-3 text-gray-600">{{ r.first_name or '—' }}</td>
+          <td class="px-6 py-3 text-gray-600">{{ r.company or '—' }}</td>
+          <td class="px-6 py-3 text-center">
+            {% if r.validation_status == 'valid' %}
+              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">&#10003; Valid</span>
+            {% elif r.validation_status == 'invalid' %}
+              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-600">&#10007; Invalid</span>
+            {% elif r.validation_status == 'risky' %}
+              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-600">&#9888; Risky</span>
+            {% elif r.validation_status == 'unknown' %}
+              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">? Unknown</span>
+            {% else %}
+              <span class="text-gray-300 text-xs">Not checked</span>
+            {% endif %}
+          </td>
+          <td class="px-6 py-3 text-center">
+            {% if r.status == 'sent' %}
+              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Sent</span>
+            {% elif r.status == 'skipped' %}
+              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-500">Skipped</span>
+            {% elif r.status == 'failed' %}
+              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Failed</span>
+            {% else %}
+              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">Pending</span>
+            {% endif %}
+          </td>
+          <td class="px-6 py-3 text-center text-gray-500 text-xs">
+            {% if r.steps_completed %}
+              {{ r.steps_completed | join(', ') }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td class="px-6 py-3 text-center">
+            {% if r.replied %}
+              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">&#10003; Yes</span>
+            {% else %}
+              <span class="text-gray-300 text-xs">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
