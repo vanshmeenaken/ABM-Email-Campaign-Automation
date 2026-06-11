@@ -123,14 +123,30 @@ def parse_recipients(raw_text):
 
 
 def personalize(text, first_name, company=""):
-    """Replace {First Name}, {Company}, and related placeholders."""
+    """Replace {First Name}, [First Name], {Company}, [Company Name], and variants."""
     name = first_name or ""
     comp = company or ""
-    for placeholder in ("{First Name}", "{first_name}", "{Name}", "{name}"):
+    for placeholder in ("{First Name}", "{first_name}", "{Name}", "{name}",
+                        "[First Name]", "[first name]", "[Name]", "[name]"):
         text = text.replace(placeholder, name)
-    for placeholder in ("{Company}", "{company}", "{Company Name}", "{company name}"):
+    for placeholder in ("{Company}", "{company}", "{Company Name}", "{company name}",
+                        "[Company]", "[company]", "[Company Name]", "[company name]"):
         text = text.replace(placeholder, comp)
     return text
+
+
+def plain_to_html(text):
+    """Convert plain text body to HTML if it contains no HTML tags."""
+    import re
+    if re.search(r'<[a-zA-Z/]', text):
+        return text  # already HTML, leave untouched
+    # Preserve paragraphs and line breaks
+    paragraphs = text.split('\n\n')
+    parts = []
+    for para in paragraphs:
+        lines = para.replace('\n', '<br>')
+        parts.append(f"<p>{lines}</p>")
+    return '\n'.join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +301,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                 sends_attempted += 1
 
                 p_subject = personalize(subject, first_name, company)
-                p_body = personalize(body, first_name, company)
+                p_body = plain_to_html(personalize(body, first_name, company))
 
                 result = send_email(
                     account_num=account_num,
