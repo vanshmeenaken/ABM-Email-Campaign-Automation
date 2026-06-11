@@ -592,12 +592,80 @@ def get_dashboard_stats():
 
 
 # ---------------------------------------------------------------------------
+# Daily stats
+# ---------------------------------------------------------------------------
+
+def get_daily_stats():
+    """Aggregate day-wise sent, opens, replies, open rate, reply rate (last 30 days)."""
+    from collections import defaultdict
+
+    opens_by_day_rows = query_db("""
+        SELECT LEFT(timestamp, 10) as day, COUNT(DISTINCT recipient) as opens
+        FROM opens
+        GROUP BY LEFT(timestamp, 10)
+        ORDER BY day DESC
+        LIMIT 30
+    """)
+    opens_map = {r["day"]: r["opens"] for r in opens_by_day_rows}
+
+    all_campaigns = query_db("SELECT brief, progress FROM campaigns")
+
+    sent_by_day     = defaultdict(int)
+    replied_by_day  = defaultdict(int)
+    campaigns_by_day = defaultdict(int)
+
+    for row in all_campaigns:
+        brief    = row["brief"]    if isinstance(row["brief"],    dict) else json.loads(row["brief"])
+        progress = row["progress"] if isinstance(row["progress"], dict) else json.loads(row["progress"])
+
+        created_at = brief.get("created_at", "")
+        if created_at:
+            try:
+                campaigns_by_day[created_at[:10]] += 1
+            except Exception:
+                pass
+
+        for detail in progress.get("send_details", []):
+            sent_at = detail.get("sent_at")
+            if sent_at and detail.get("status") == "sent":
+                try:
+                    sent_by_day[sent_at[:10]] += 1
+                except Exception:
+                    pass
+            replied_at = detail.get("replied_at")
+            if replied_at and detail.get("replied"):
+                try:
+                    replied_by_day[replied_at[:10]] += 1
+                except Exception:
+                    pass
+
+    all_days = set(opens_map) | set(sent_by_day) | set(replied_by_day) | set(campaigns_by_day)
+
+    daily = []
+    for day in sorted(all_days, reverse=True)[:30]:
+        sent    = sent_by_day.get(day, 0)
+        opens   = opens_map.get(day, 0)
+        replies = replied_by_day.get(day, 0)
+        daily.append({
+            "day":        day,
+            "campaigns":  campaigns_by_day.get(day, 0),
+            "sent":       sent,
+            "opens":      opens,
+            "replies":    replies,
+            "open_rate":  f"{opens / sent * 100:.1f}%" if sent > 0 else "—",
+            "reply_rate": f"{replies / sent * 100:.1f}%" if sent > 0 else "—",
+        })
+    return daily
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
 @app.route("/")
 def dashboard():
     stats = get_dashboard_stats()
+    stats["daily_stats"] = get_daily_stats()
     return render_template("dashboard.html", **stats)
 
 
