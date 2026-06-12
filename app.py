@@ -154,6 +154,81 @@ def plain_to_html(text):
 
 
 # ---------------------------------------------------------------------------
+# Attachment helpers
+# ---------------------------------------------------------------------------
+
+def save_attachment(campaign_id, step, filename, content_type, content_b64):
+    execute_db(
+        """INSERT INTO attachments (campaign_id, step, filename, content_type, content_b64)
+           VALUES (%s, %s, %s, %s, %s)""",
+        (campaign_id, step, filename, content_type, content_b64),
+    )
+
+
+def get_attachments(campaign_id, step):
+    return [dict(r) for r in query_db(
+        "SELECT filename, content_type, content_b64 FROM attachments WHERE campaign_id = %s AND step = %s ORDER BY id",
+        (campaign_id, step),
+    )]
+
+
+def apply_attachments(body, attachments):
+    """Replace {image}/{file} markers in body and build Graph API attachment list.
+    Multiple markers supported — each replaced by successive file in order.
+    Unmatched files appended at end or attached silently.
+    """
+    graph_attachments = []
+    image_files = [a for a in attachments if a["content_type"].startswith("image/")]
+    other_files = [a for a in attachments if not a["content_type"].startswith("image/")]
+
+    img_markers = ["{image}", "[image]", "{Image}", "[Image]"]
+    file_markers = ["{file}", "[file]", "{File}", "[File]", "{attachment}", "[attachment]"]
+
+    # Replace image markers
+    for idx, att in enumerate(image_files):
+        cid = f"img{idx}"
+        img_tag = (f'<img src="cid:{cid}" style="max-width:100%;height:auto;display:block;" '
+                   f'alt="{att["filename"]}" />')
+        replaced = False
+        for m in img_markers:
+            if m in body:
+                body = body.replace(m, img_tag, 1)
+                replaced = True
+                break
+        if not replaced:
+            body = body + f"<br>{img_tag}"
+        graph_attachments.append({
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": att["filename"],
+            "contentType": att["content_type"],
+            "contentBytes": att["content_b64"],
+            "contentId": cid,
+            "isInline": True,
+        })
+
+    # Replace file markers (PDF, Excel, etc.)
+    for att in other_files:
+        file_ref = f'<p style="margin:8px 0;">&#128206; <em>{att["filename"]}</em></p>'
+        replaced = False
+        for m in file_markers:
+            if m in body:
+                body = body.replace(m, file_ref, 1)
+                replaced = True
+                break
+        if not replaced:
+            body = body + file_ref
+        graph_attachments.append({
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": att["filename"],
+            "contentType": att["content_type"],
+            "contentBytes": att["content_b64"],
+            "isInline": False,
+        })
+
+    return body, graph_attachments
+
+
+# ---------------------------------------------------------------------------
 # Email validation
 # ---------------------------------------------------------------------------
 
@@ -280,6 +355,9 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
             print(f"[{campaign_id}] Step {step_num}: sending to {len(need_step)} recipients "
                   f"(skipping {len(recipients) - len(need_step)} already sent/replied)...")
 
+            # Load attachments for this step once (shared across all recipients)
+            step_attachments = get_attachments(campaign_id, step_num)
+
             sends_attempted = 0
             for i, rec in enumerate(need_step):
                 email = rec["email"]
@@ -314,6 +392,12 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                     p_subject = personalize(subject, first_name, company)
                     p_body = plain_to_html(personalize(body, first_name, company))
 
+                    # Apply attachments — replace markers in body, build graph list
+                    if step_attachments:
+                        p_body, graph_atts = apply_attachments(p_body, step_attachments)
+                    else:
+                        graph_atts = []
+
                     result = send_email(
                         account_num=account_num,
                         recipient_email=email,
@@ -322,6 +406,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                         campaign_id=campaign_id,
                         step=step_num,
                         tracker_url=tracker_url,
+                        attachments=graph_atts if graph_atts else None,
                     )
 
                     try:
@@ -466,6 +551,17 @@ def init_db():
                 campaign_id TEXT PRIMARY KEY,
                 brief JSONB NOT NULL DEFAULT '{}',
                 progress JSONB NOT NULL DEFAULT '{}',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS attachments (
+                id SERIAL PRIMARY KEY,
+                campaign_id TEXT,
+                step INTEGER,
+                filename TEXT,
+                content_type TEXT,
+                content_b64 TEXT,
                 created_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
@@ -816,6 +912,22 @@ def send_submit():
 
     if not campaign_id:
         campaign_id = f"camp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    # Save uploaded attachments per step
+    for step_num in [1, 2, 3]:
+        files = request.files.getlist(f"attachments_{step_num}")
+        for f in files:
+            if f and f.filename:
+                import base64
+                raw = f.read()
+                if not raw:
+                    continue
+                b64 = base64.b64encode(raw).decode("utf-8")
+                ctype = f.content_type or "application/octet-stream"
+                try:
+                    save_attachment(campaign_id, step_num, f.filename, ctype, b64)
+                except Exception as e:
+                    print(f"[ATTACH] Warning: could not save {f.filename}: {e}")
 
     n_steps = len(sequences)
     campaign_label = sequences[0]["subject"]

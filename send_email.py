@@ -67,8 +67,11 @@ def get_access_token(client_id, client_secret):
         print(f"[ERROR] Error getting token: {str(e)}")
         return None
 
-def send_email(account_num, recipient_email, subject="Test Email", body="This is a test email", in_reply_to=None, campaign_id=None, step=1, tracker_url="http://localhost:5000"):
-    """Send email from specified satellite account with optional threading and tracking"""
+def send_email(account_num, recipient_email, subject="Test Email", body="This is a test email", in_reply_to=None, campaign_id=None, step=1, tracker_url="http://localhost:5000", attachments=None):
+    """Send email from specified satellite account with optional threading, tracking, and attachments.
+
+    attachments: list of dicts with keys name, contentType, contentBytes (base64 str), isInline, contentId (optional)
+    """
 
     if account_num not in ACCOUNTS:
         print(f"[ERROR] Invalid account number. Use 1, 2, 3, or 4")
@@ -93,24 +96,34 @@ def send_email(account_num, recipient_email, subject="Test Email", body="This is
         tracking_pixel = f'<img src="{tracker_url}/track/pixel?campaign_id={campaign_id}&recipient={recipient_email}&step={step}" width="1" height="1" alt="" style="display:none;" />'
         email_body = f"{body}\n{tracking_pixel}"
 
-    # Build email body
-    email_data = {
-        "message": {
-            "subject": subject,
-            "body": {
-                "contentType": "HTML",
-                "content": email_body
-            },
-            "toRecipients": [
-                {
-                    "emailAddress": {
-                        "address": recipient_email
-                    }
-                }
-            ]
+    # Build email message
+    message = {
+        "subject": subject,
+        "body": {
+            "contentType": "HTML",
+            "content": email_body,
         },
-        "saveToSentItems": True
+        "toRecipients": [
+            {"emailAddress": {"address": recipient_email}}
+        ],
     }
+
+    # Add attachments
+    if attachments:
+        message["attachments"] = []
+        for att in attachments:
+            graph_att = {
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": att["name"],
+                "contentType": att["contentType"],
+                "contentBytes": att["contentBytes"],
+            }
+            if att.get("isInline"):
+                graph_att["isInline"] = True
+                graph_att["contentId"] = att.get("contentId", att["name"])
+            message["attachments"].append(graph_att)
+
+    email_data = {"message": message, "saveToSentItems": True}
 
     # Add threading if replying to previous email
     if in_reply_to:
@@ -131,7 +144,6 @@ def send_email(account_num, recipient_email, subject="Test Email", body="This is
 
         if response.status_code == 202:
             print(f"[OK] Email sent successfully!")
-            # Try to get message ID from response headers or return success indicator
             return True
         else:
             print(f"[FAILED] Failed to send. Status: {response.status_code}")
