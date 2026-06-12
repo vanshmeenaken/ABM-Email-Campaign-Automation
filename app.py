@@ -40,6 +40,10 @@ ACCOUNTS = {
     "4": "Tanushree Kalita",
 }
 
+# Prevents duplicate threads running the same campaign simultaneously
+_running_campaigns: set = set()
+_running_lock = threading.Lock()
+
 
 # ---------------------------------------------------------------------------
 # DB connection
@@ -189,184 +193,195 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
     """Multi-step campaign sender with full state persistence via Supabase."""
     import time, random
 
-    for seq_idx, seq in enumerate(sequences):
-        step_num = seq["step"]
-        subject = seq["subject"]
-        body = seq["body"]
-        is_last = (seq_idx == len(sequences) - 1)
+    with _running_lock:
+        if campaign_id in _running_campaigns:
+            print(f"[SKIP] {campaign_id} already running — duplicate thread blocked")
+            return
+        _running_campaigns.add(campaign_id)
 
-        # Wait until scheduled send time
-        try:
-            prog = _load_progress(campaign_id)
-            stored_send_at = prog.get("next_step_send_at") if prog.get("current_step") == step_num else None
-        except Exception:
-            stored_send_at = None
+    try:
+        for seq_idx, seq in enumerate(sequences):
+            step_num = seq["step"]
+            subject = seq["subject"]
+            body = seq["body"]
+            is_last = (seq_idx == len(sequences) - 1)
 
-        if stored_send_at:
-            send_at = datetime.fromisoformat(stored_send_at)
-        else:
-            delay_days = seq.get("delay_days", 0)
-            delay_minutes = seq.get("delay_minutes", 0)
-            total_seconds = delay_days * 86400 + delay_minutes * 60
-            send_at = datetime.now() + timedelta(seconds=total_seconds) if total_seconds > 0 else datetime.now()
-
-        remaining = (send_at - datetime.now()).total_seconds()
-        if remaining > 0:
+            # Wait until scheduled send time
             try:
                 prog = _load_progress(campaign_id)
-                prog["campaign_status"] = "waiting"
-                prog["current_step"] = step_num
-                prog["next_step_send_at"] = send_at.isoformat()
-                prog["last_update"] = datetime.now().isoformat()
-                _save_progress(campaign_id, prog)
+                stored_send_at = prog.get("next_step_send_at") if prog.get("current_step") == step_num else None
             except Exception:
-                pass
-            print(f"[{campaign_id}] Step {step_num}: waiting {remaining/86400:.1f}d "
-                  f"(until {send_at.strftime('%Y-%m-%d %H:%M')})...")
-            time.sleep(remaining)
+                stored_send_at = None
 
-        # Mark step as actively sending
-        try:
-            prog = _load_progress(campaign_id)
-            prog["campaign_status"] = "active"
-            prog["current_step"] = step_num
-            prog["next_step_send_at"] = None
-            prog["last_update"] = datetime.now().isoformat()
-            _save_progress(campaign_id, prog)
-        except Exception:
-            pass
+            if stored_send_at:
+                send_at = datetime.fromisoformat(stored_send_at)
+            else:
+                delay_days = seq.get("delay_days", 0)
+                delay_minutes = seq.get("delay_minutes", 0)
+                total_seconds = delay_days * 86400 + delay_minutes * 60
+                send_at = datetime.now() + timedelta(seconds=total_seconds) if total_seconds > 0 else datetime.now()
 
-        # Duplicate-send guard + replied guard + skipped guard
-        try:
-            prog = _load_progress(campaign_id)
-            already_sent = {
-                d["recipient"] for d in prog["send_details"]
-                if step_num in d.get("steps_completed", [])
-            }
-            failed_emails = {
-                d["recipient"] for d in prog["send_details"]
-                if d.get("status") == "failed"
-            }
-            replied_emails = {
-                d["recipient"] for d in prog["send_details"]
-                if d.get("replied")
-            }
-            skipped_emails = {
-                d["recipient"] for d in prog["send_details"]
-                if d.get("status") == "skipped"
-            }
-        except Exception:
-            already_sent, failed_emails, replied_emails, skipped_emails = set(), set(), set(), set()
-
-        need_step = [
-            r for r in recipients
-            if r["email"] not in already_sent
-            and r["email"] not in failed_emails
-            and r["email"] not in replied_emails
-            and r["email"] not in skipped_emails
-        ]
-
-        print(f"[{campaign_id}] Step {step_num}: sending to {len(need_step)} recipients "
-              f"(skipping {len(recipients) - len(need_step)} already sent/replied)...")
-
-        sends_attempted = 0
-        for i, rec in enumerate(need_step):
-            email = rec["email"]
-            first_name = rec.get("first_name", "")
-            company = rec.get("company", "")
-            try:
-                # Validate on Step 1 only (uses Bouncify credit once per email)
-                if step_num == 1 and BOUNCIFY_API_KEY:
-                    val_status, val_result = validate_email_bouncify(email)
-                    print(f"[VALIDATE] [{val_status.upper()}] {email}: {val_result}")
-                    try:
-                        prog = _load_progress(campaign_id)
-                        for detail in prog["send_details"]:
-                            if detail["recipient"] == email:
-                                detail["validation_status"] = val_status
-                                detail["validation_result"] = val_result
-                                if val_status in ("invalid", "risky"):
-                                    detail["status"] = "skipped"
-                                    prog["pending"] = max(0, prog.get("pending", 1) - 1)
-                                break
-                        _save_progress(campaign_id, prog)
-                    except Exception:
-                        pass
-                    if val_status in ("invalid", "risky"):
-                        print(f"[VALIDATE] Skipping {email} ({val_status})")
-                        continue
-
-                if sends_attempted > 0:
-                    time.sleep(random.uniform(240, 300))  # 4-5 min anti-spam gap
-                sends_attempted += 1
-
-                p_subject = personalize(subject, first_name, company)
-                p_body = plain_to_html(personalize(body, first_name, company))
-
-                result = send_email(
-                    account_num=account_num,
-                    recipient_email=email,
-                    subject=p_subject,
-                    body=p_body,
-                    campaign_id=campaign_id,
-                    step=step_num,
-                    tracker_url=tracker_url,
-                )
-
+            remaining = (send_at - datetime.now()).total_seconds()
+            if remaining > 0:
                 try:
                     prog = _load_progress(campaign_id)
-                    for detail in prog["send_details"]:
-                        if detail["recipient"] == email:
-                            steps_done = detail.setdefault("steps_completed", [])
-                            if result:
-                                if step_num not in steps_done:
-                                    steps_done.append(step_num)
-                                detail["status"] = "sent"
-                                detail["step"] = step_num
-                                detail["sent_at"] = datetime.now().isoformat()
-                                if step_num == 1:
-                                    prog["sent"] = prog.get("sent", 0) + 1
-                                    prog["pending"] = max(0, prog.get("pending", 1) - 1)
-                            else:
-                                detail["status"] = "failed"
-                                if step_num == 1:
-                                    prog["failed"] = prog.get("failed", 0) + 1
-                                    prog["pending"] = max(0, prog.get("pending", 1) - 1)
-                            break
+                    prog["campaign_status"] = "waiting"
+                    prog["current_step"] = step_num
+                    prog["next_step_send_at"] = send_at.isoformat()
                     prog["last_update"] = datetime.now().isoformat()
                     _save_progress(campaign_id, prog)
                 except Exception:
                     pass
+                print(f"[{campaign_id}] Step {step_num}: waiting {remaining/86400:.1f}d "
+                      f"(until {send_at.strftime('%Y-%m-%d %H:%M')})...")
+                time.sleep(remaining)
 
-                label = f"{first_name} <{email}>" if first_name else email
-                print(f"[Step {step_num}] [{'SENT' if result else 'FAILED'}] {label} at {datetime.now()}")
-
-            except Exception as e:
-                print(f"[Step {step_num}] [ERROR] {email}: {e}")
-
-        # Record step completion
-        try:
-            prog = _load_progress(campaign_id)
-            prog.setdefault("step_completed_at", {})[str(step_num)] = datetime.now().isoformat()
-
-            if is_last:
-                prog["campaign_status"] = "completed"
+            # Mark step as actively sending
+            try:
+                prog = _load_progress(campaign_id)
+                prog["campaign_status"] = "active"
+                prog["current_step"] = step_num
                 prog["next_step_send_at"] = None
-                print(f"[{campaign_id}] All {len(sequences)} step(s) complete.")
-            else:
-                next_seq = sequences[seq_idx + 1]
-                next_delay_secs = next_seq.get("delay_days", 0) * 86400 + next_seq.get("delay_minutes", 0) * 60
-                next_send_at = datetime.now() + timedelta(seconds=next_delay_secs)
-                prog["campaign_status"] = "waiting"
-                prog["current_step"] = next_seq["step"]
-                prog["next_step_send_at"] = next_send_at.isoformat()
-                print(f"[{campaign_id}] Step {step_num} done. "
-                      f"Step {next_seq['step']} scheduled for {next_send_at.strftime('%Y-%m-%d %H:%M')}.")
+                prog["last_update"] = datetime.now().isoformat()
+                _save_progress(campaign_id, prog)
+            except Exception:
+                pass
 
-            prog["last_update"] = datetime.now().isoformat()
-            _save_progress(campaign_id, prog)
-        except Exception:
-            pass
+            # Duplicate-send guard + replied guard + skipped guard
+            try:
+                prog = _load_progress(campaign_id)
+                already_sent = {
+                    d["recipient"] for d in prog["send_details"]
+                    if step_num in d.get("steps_completed", [])
+                }
+                failed_emails = {
+                    d["recipient"] for d in prog["send_details"]
+                    if d.get("status") == "failed"
+                }
+                replied_emails = {
+                    d["recipient"] for d in prog["send_details"]
+                    if d.get("replied")
+                }
+                skipped_emails = {
+                    d["recipient"] for d in prog["send_details"]
+                    if d.get("status") == "skipped"
+                }
+            except Exception:
+                already_sent, failed_emails, replied_emails, skipped_emails = set(), set(), set(), set()
+
+            need_step = [
+                r for r in recipients
+                if r["email"] not in already_sent
+                and r["email"] not in failed_emails
+                and r["email"] not in replied_emails
+                and r["email"] not in skipped_emails
+            ]
+
+            print(f"[{campaign_id}] Step {step_num}: sending to {len(need_step)} recipients "
+                  f"(skipping {len(recipients) - len(need_step)} already sent/replied)...")
+
+            sends_attempted = 0
+            for i, rec in enumerate(need_step):
+                email = rec["email"]
+                first_name = rec.get("first_name", "")
+                company = rec.get("company", "")
+                try:
+                    # Validate on Step 1 only (uses Bouncify credit once per email)
+                    if step_num == 1 and BOUNCIFY_API_KEY:
+                        val_status, val_result = validate_email_bouncify(email)
+                        print(f"[VALIDATE] [{val_status.upper()}] {email}: {val_result}")
+                        try:
+                            prog = _load_progress(campaign_id)
+                            for detail in prog["send_details"]:
+                                if detail["recipient"] == email:
+                                    detail["validation_status"] = val_status
+                                    detail["validation_result"] = val_result
+                                    if val_status in ("invalid", "risky"):
+                                        detail["status"] = "skipped"
+                                        prog["pending"] = max(0, prog.get("pending", 1) - 1)
+                                    break
+                            _save_progress(campaign_id, prog)
+                        except Exception:
+                            pass
+                        if val_status in ("invalid", "risky"):
+                            print(f"[VALIDATE] Skipping {email} ({val_status})")
+                            continue
+
+                    if sends_attempted > 0:
+                        time.sleep(random.uniform(240, 300))  # 4-5 min anti-spam gap
+                    sends_attempted += 1
+
+                    p_subject = personalize(subject, first_name, company)
+                    p_body = plain_to_html(personalize(body, first_name, company))
+
+                    result = send_email(
+                        account_num=account_num,
+                        recipient_email=email,
+                        subject=p_subject,
+                        body=p_body,
+                        campaign_id=campaign_id,
+                        step=step_num,
+                        tracker_url=tracker_url,
+                    )
+
+                    try:
+                        prog = _load_progress(campaign_id)
+                        for detail in prog["send_details"]:
+                            if detail["recipient"] == email:
+                                steps_done = detail.setdefault("steps_completed", [])
+                                if result:
+                                    if step_num not in steps_done:
+                                        steps_done.append(step_num)
+                                    detail["status"] = "sent"
+                                    detail["step"] = step_num
+                                    detail["sent_at"] = datetime.now().isoformat()
+                                    if step_num == 1:
+                                        prog["sent"] = prog.get("sent", 0) + 1
+                                        prog["pending"] = max(0, prog.get("pending", 1) - 1)
+                                else:
+                                    detail["status"] = "failed"
+                                    if step_num == 1:
+                                        prog["failed"] = prog.get("failed", 0) + 1
+                                        prog["pending"] = max(0, prog.get("pending", 1) - 1)
+                                break
+                        prog["last_update"] = datetime.now().isoformat()
+                        _save_progress(campaign_id, prog)
+                    except Exception:
+                        pass
+
+                    label = f"{first_name} <{email}>" if first_name else email
+                    print(f"[Step {step_num}] [{'SENT' if result else 'FAILED'}] {label} at {datetime.now()}")
+
+                except Exception as e:
+                    print(f"[Step {step_num}] [ERROR] {email}: {e}")
+
+            # Record step completion
+            try:
+                prog = _load_progress(campaign_id)
+                prog.setdefault("step_completed_at", {})[str(step_num)] = datetime.now().isoformat()
+
+                if is_last:
+                    prog["campaign_status"] = "completed"
+                    prog["next_step_send_at"] = None
+                    print(f"[{campaign_id}] All {len(sequences)} step(s) complete.")
+                else:
+                    next_seq = sequences[seq_idx + 1]
+                    next_delay_secs = next_seq.get("delay_days", 0) * 86400 + next_seq.get("delay_minutes", 0) * 60
+                    next_send_at = datetime.now() + timedelta(seconds=next_delay_secs)
+                    prog["campaign_status"] = "waiting"
+                    prog["current_step"] = next_seq["step"]
+                    prog["next_step_send_at"] = next_send_at.isoformat()
+                    print(f"[{campaign_id}] Step {step_num} done. "
+                          f"Step {next_seq['step']} scheduled for {next_send_at.strftime('%Y-%m-%d %H:%M')}.")
+
+                prog["last_update"] = datetime.now().isoformat()
+                _save_progress(campaign_id, prog)
+            except Exception:
+                pass
+
+    finally:
+        with _running_lock:
+            _running_campaigns.discard(campaign_id)
 
 
 def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, sequences):
@@ -674,6 +689,43 @@ def get_daily_stats():
     return daily
 
 
+def get_campaign_performance():
+    """Per-campaign stats table for the dashboard reporting section."""
+    all_campaigns = query_db("""
+        SELECT campaign_id, brief, progress FROM campaigns ORDER BY created_at DESC
+    """)
+    opens_rows = query_db("""
+        SELECT campaign_id, COUNT(DISTINCT recipient) as opens FROM opens GROUP BY campaign_id
+    """)
+    opens_map = {r["campaign_id"]: r["opens"] for r in opens_rows}
+
+    rows = []
+    for row in all_campaigns:
+        brief    = row["brief"]    if isinstance(row["brief"],    dict) else json.loads(row["brief"])
+        progress = row["progress"] if isinstance(row["progress"], dict) else json.loads(row["progress"])
+        cid = row["campaign_id"]
+
+        sent    = progress.get("sent", 0)
+        opens   = opens_map.get(cid, 0)
+        replies = sum(1 for d in progress.get("send_details", []) if d.get("replied"))
+        total   = progress.get("total_recipients", 0)
+
+        rows.append({
+            "id":           cid,
+            "name":         brief.get("name", cid),
+            "account":      brief.get("account_name", "—"),
+            "date":         brief.get("created_at", "")[:10],
+            "total":        total,
+            "sent":         sent,
+            "opens":        opens,
+            "replies":      replies,
+            "open_rate":    f"{opens / sent * 100:.1f}%" if sent > 0 else "—",
+            "reply_rate":   f"{replies / sent * 100:.1f}%" if sent > 0 else "—",
+            "status":       progress.get("campaign_status", "active"),
+        })
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -682,6 +734,7 @@ def get_daily_stats():
 def dashboard():
     stats = get_dashboard_stats()
     stats["daily_stats"] = get_daily_stats()
+    stats["campaign_performance"] = get_campaign_performance()
     return render_template("dashboard.html", **stats)
 
 
@@ -795,6 +848,8 @@ def send_submit():
 # Tracking routes
 # ---------------------------------------------------------------------------
 
+INTERNAL_DOMAINS = {"kenresearch.com"}
+
 @app.route("/track/pixel", methods=["GET"])
 def track_pixel():
     campaign_id = request.args.get("campaign_id", "unknown")
@@ -804,11 +859,14 @@ def track_pixel():
     ip_address = request.remote_addr
     timestamp = datetime.utcnow().isoformat()
 
-    execute_db(
-        """INSERT INTO opens (campaign_id, recipient, step, timestamp, user_agent, ip_address)
-           VALUES (%s, %s, %s, %s, %s, %s)""",
-        (campaign_id, recipient, int(step), timestamp, user_agent, ip_address),
-    )
+    # Skip tracking for internal team emails
+    domain = recipient.split("@")[-1].lower() if "@" in recipient else ""
+    if domain not in INTERNAL_DOMAINS:
+        execute_db(
+            """INSERT INTO opens (campaign_id, recipient, step, timestamp, user_agent, ip_address)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (campaign_id, recipient, int(step), timestamp, user_agent, ip_address),
+        )
     return send_file(BytesIO(PIXEL), mimetype="image/png")
 
 
