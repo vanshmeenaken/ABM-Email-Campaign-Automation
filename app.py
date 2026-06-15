@@ -727,7 +727,8 @@ def get_daily_stats():
     from collections import defaultdict
 
     opens_by_day_rows = query_db("""
-        SELECT LEFT(timestamp, 10) as day, COUNT(DISTINCT recipient) as opens
+        SELECT LEFT(timestamp, 10) as day,
+               COUNT(DISTINCT recipient || '|' || campaign_id) as opens
         FROM opens
         GROUP BY LEFT(timestamp, 10)
         ORDER BY day DESC
@@ -779,7 +780,6 @@ def get_daily_stats():
             "sent":       sent,
             "opens":      opens,
             "replies":    replies,
-            "open_rate":  f"{opens / sent * 100:.1f}%" if sent > 0 else "—",
             "reply_rate": f"{replies / sent * 100:.1f}%" if sent > 0 else "—",
         })
     return daily
