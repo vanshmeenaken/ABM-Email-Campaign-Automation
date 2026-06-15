@@ -723,26 +723,27 @@ def get_dashboard_stats():
 # ---------------------------------------------------------------------------
 
 def get_daily_stats():
-    """Aggregate day-wise sent, opens, replies, open rate, reply rate (last 30 days)."""
+    """Aggregate day-wise sent, opens, replies, open rate, reply rate (last 30 days).
+
+    Open rate is computed correctly: for emails sent on day X, how many of those
+    specific (recipient, campaign_id) pairs ever opened the email (on any day).
+    This avoids the false inflation from same-day comparisons across different emails.
+    """
     from collections import defaultdict
 
-    opens_by_day_rows = query_db("""
-        SELECT LEFT(timestamp, 10) as day,
-               COUNT(DISTINCT recipient || '|' || campaign_id) as opens
-        FROM opens
-        GROUP BY LEFT(timestamp, 10)
-        ORDER BY day DESC
-        LIMIT 30
-    """)
-    opens_map = {r["day"]: r["opens"] for r in opens_by_day_rows}
+    # Build a set of all (campaign_id, recipient) pairs that ever opened
+    all_opens_rows = query_db("SELECT DISTINCT campaign_id, recipient FROM opens")
+    ever_opened = {(r["campaign_id"], r["recipient"]) for r in all_opens_rows}
 
-    all_campaigns = query_db("SELECT brief, progress FROM campaigns")
+    all_campaigns = query_db("SELECT campaign_id, brief, progress FROM campaigns")
 
-    sent_by_day     = defaultdict(int)
-    replied_by_day  = defaultdict(int)
+    sent_by_day      = defaultdict(int)
+    opened_by_day    = defaultdict(int)   # of emails sent on day X, how many opened
+    replied_by_day   = defaultdict(int)
     campaigns_by_day = defaultdict(int)
 
     for row in all_campaigns:
+        cid      = row["campaign_id"]
         brief    = row["brief"]    if isinstance(row["brief"],    dict) else json.loads(row["brief"])
         progress = row["progress"] if isinstance(row["progress"], dict) else json.loads(row["progress"])
 
@@ -755,9 +756,13 @@ def get_daily_stats():
 
         for detail in progress.get("send_details", []):
             sent_at = detail.get("sent_at")
+            recipient = detail.get("recipient", "")
             if sent_at and detail.get("status") == "sent":
                 try:
-                    sent_by_day[sent_at[:10]] += 1
+                    day = sent_at[:10]
+                    sent_by_day[day] += 1
+                    if (cid, recipient) in ever_opened:
+                        opened_by_day[day] += 1
                 except Exception:
                     pass
             replied_at = detail.get("replied_at")
@@ -767,19 +772,20 @@ def get_daily_stats():
                 except Exception:
                     pass
 
-    all_days = set(opens_map) | set(sent_by_day) | set(replied_by_day) | set(campaigns_by_day)
+    all_days = set(sent_by_day) | set(replied_by_day) | set(campaigns_by_day)
 
     daily = []
     for day in sorted(all_days, reverse=True)[:30]:
         sent    = sent_by_day.get(day, 0)
-        opens   = opens_map.get(day, 0)
+        opened  = opened_by_day.get(day, 0)
         replies = replied_by_day.get(day, 0)
         daily.append({
             "day":        day,
             "campaigns":  campaigns_by_day.get(day, 0),
             "sent":       sent,
-            "opens":      opens,
+            "opens":      opened,
             "replies":    replies,
+            "open_rate":  f"{opened / sent * 100:.1f}%" if sent > 0 else "—",
             "reply_rate": f"{replies / sent * 100:.1f}%" if sent > 0 else "—",
         })
     return daily
