@@ -103,48 +103,98 @@ def _load_brief(campaign_id):
 def parse_recipients(raw_text):
     """Parse recipient lines into dicts.
 
-    Supports comma-separated and tab-separated (paste directly from Excel/Sheets).
-    Auto-detects email column; filters out LinkedIn URLs, phone numbers, NA, websites.
-    Extracts first name (first word of name column) and company automatically.
+    Supports:
+    1. Header-aware tab/comma-separated (paste from Excel/Sheets with column headers).
+       Recognises columns: Email, Full Name / Name, Company Name / Company, etc.
+       Skips rows where the email cell is empty or "NA".
+    2. Headerless tab-separated — auto-detects email column by @, heuristically
+       picks name and company from remaining text fields.
+    3. Simple comma-separated: "Name, Company, email" or "Name, email" or "email".
 
-    Examples that all work:
-      vansh@example.com
-      Vansh, vansh@example.com
-      Vansh, Ken Research, vansh@example.com
-      Amit Talwar [tab] Country Director [tab] linkedin.com/... [tab] Agco [tab] agco.com [tab] amit@agco.com [tab] NA
+    Returns list of {"email": ..., "first_name": ..., "company": ...}
     """
     _JUNK = {"na", "n/a", "-", "--", ""}
 
     def _is_url(s):
-        return s.startswith("http") or "linkedin.com" in s.lower() or (
-            "." in s and "/" in s
+        sl = s.lower()
+        return s.startswith("http") or "linkedin.com" in sl or (
+            "." in s and "/" in s and not "@" in s
         )
 
     def _is_phone(s):
         stripped = s.replace("+", "").replace(" ", "").replace("-", "")
         return stripped.isdigit() and len(stripped) >= 7
 
+    def _find_col(headers, *keywords):
+        for i, h in enumerate(headers):
+            if any(k in h.lower() for k in keywords):
+                return i
+        return None
+
+    lines = [l for l in raw_text.splitlines() if l.strip()]
+    if not lines:
+        return []
+
     result = []
-    for line in raw_text.splitlines():
+
+    # --- Detect if first line is a header row (no @ in it) ---
+    first = lines[0]
+    delimiter = "\t" if "\t" in first else ","
+    first_parts = [p.strip() for p in first.split(delimiter)]
+    has_header = "@" not in first and any(
+        kw in first.lower() for kw in ("email", "name", "company", "linkedin")
+    )
+
+    if has_header:
+        headers = [p.lower().strip() for p in first_parts]
+        email_col   = _find_col(headers, "email")
+        name_col    = _find_col(headers, "full name", "name", "prospect_full")
+        company_col = _find_col(headers, "company name", "company", "prospect_company", "organisation")
+
+        if email_col is None:
+            # No email column found in header — fall through to heuristic
+            has_header = False
+        else:
+            for line in lines[1:]:
+                parts = [p.strip() for p in line.split(delimiter)]
+                # Pad short rows
+                while len(parts) <= max(filter(None.__ne__, [email_col, name_col, company_col])):
+                    parts.append("")
+
+                email = parts[email_col].strip().lower() if email_col < len(parts) else ""
+                if not email or email in _JUNK or "@" not in email:
+                    continue  # No email — skip row
+
+                raw_name = parts[name_col].strip() if name_col is not None and name_col < len(parts) else ""
+                first_name = raw_name.split()[0] if raw_name else ""
+
+                company = parts[company_col].strip() if company_col is not None and company_col < len(parts) else ""
+                if company.lower() in _JUNK:
+                    company = ""
+
+                result.append({"email": email, "first_name": first_name, "company": company})
+            return result
+
+    # --- Heuristic mode (no header) ---
+    for line in lines:
         line = line.strip()
         if not line or "@" not in line:
             continue
 
-        # Detect tab vs comma
         parts = [p.strip() for p in (line.split("\t") if "\t" in line else line.split(","))]
 
-        # Find email column — has @ but is not a LinkedIn/URL
+        # Find email column
         email_idx = next(
-            (i for i, p in enumerate(parts)
-             if "@" in p and not _is_url(p)),
-            None,
+            (i for i, p in enumerate(parts) if "@" in p and not _is_url(p)), None
         )
         if email_idx is None:
             continue
 
         email = parts[email_idx].lower().strip()
+        if email in _JUNK:
+            continue
 
-        # Remaining non-junk text columns (no URL, no phone, not NA)
+        # Remaining clean text columns
         text_parts = [
             p for i, p in enumerate(parts)
             if i != email_idx
@@ -153,12 +203,11 @@ def parse_recipients(raw_text):
             and not _is_phone(p)
         ]
 
-        # First text part = full name → use only first word as first_name
         first_name = text_parts[0].split()[0] if text_parts else ""
-        # Second text part = company (keep full string)
-        company = text_parts[1] if len(text_parts) >= 2 else ""
+        company    = text_parts[1] if len(text_parts) >= 2 else ""
 
         result.append({"email": email, "first_name": first_name, "company": company})
+
     return result
 
 
