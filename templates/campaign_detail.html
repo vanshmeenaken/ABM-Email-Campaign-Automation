@@ -26,18 +26,40 @@
   </div>
 </div>
 
-<!-- Validation summary cards -->
+<!-- Summary cards -->
 {% set valid_count = recipients | selectattr('validation_status', 'equalto', 'valid') | list | length %}
 {% set invalid_count = recipients | selectattr('validation_status', 'equalto', 'invalid') | list | length %}
 {% set risky_count = recipients | selectattr('validation_status', 'equalto', 'risky') | list | length %}
 {% set unknown_count = recipients | selectattr('validation_status', 'equalto', 'unknown') | list | length %}
 {% set unvalidated_count = recipients | rejectattr('validation_status') | list | length %}
+{% set sent_count = recipients | selectattr('status', 'equalto', 'sent') | list | length %}
+{% set failed_count = recipients | selectattr('status', 'equalto', 'failed') | list | length %}
+{% set skipped_count = recipients | selectattr('status', 'equalto', 'skipped') | list | length %}
+{% set undelivered_count = failed_count + skipped_count %}
 
-<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
   <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
     <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Total</p>
     <p class="text-2xl font-bold text-gray-800">{{ recipients | length }}</p>
   </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Delivered</p>
+    <p class="text-2xl font-bold text-green-600">{{ sent_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Undelivered</p>
+    <p class="text-2xl font-bold text-red-500">{{ undelivered_count }}</p>
+    {% if undelivered_count > 0 %}
+    <p class="text-xs text-gray-400 mt-1">{{ failed_count }} failed &middot; {{ skipped_count }} skipped</p>
+    {% endif %}
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Pending</p>
+    <p class="text-2xl font-bold text-amber-500">{{ (recipients | length) - sent_count - undelivered_count }}</p>
+  </div>
+</div>
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
   <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
     <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Valid</p>
     <p class="text-2xl font-bold text-green-600">{{ valid_count }}</p>
