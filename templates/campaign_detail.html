@@ -99,7 +99,10 @@
       </thead>
       <tbody class="divide-y divide-gray-100">
         {% for r in recipients %}
-        <tr class="hover:bg-gray-50 transition">
+        <tr class="transition
+          {% if r.status in ('failed', 'skipped') %}bg-red-50 hover:bg-red-100
+          {% elif r.status == 'sent' %}hover:bg-green-50
+          {% else %}hover:bg-gray-50{% endif %}">
           <td class="px-6 py-3 font-mono text-xs text-gray-700">{{ r.recipient }}</td>
           <td class="px-6 py-3 text-gray-600">{{ r.first_name or '—' }}</td>
           <td class="px-6 py-3 text-gray-600">{{ r.company or '—' }}</td>
@@ -118,13 +121,21 @@
           </td>
           <td class="px-6 py-3 text-center">
             {% if r.status == 'sent' %}
-              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Sent</span>
+              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                &#10003; Delivered
+              </span>
             {% elif r.status == 'skipped' %}
-              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-500">Skipped</span>
+              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-600">
+                &#10007; Undelivered
+              </span>
+              <p class="text-xs text-gray-400 mt-0.5">Skipped (Bouncify)</p>
             {% elif r.status == 'failed' %}
-              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Failed</span>
+              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+                &#10007; Undelivered
+              </span>
+              <p class="text-xs text-gray-400 mt-0.5">Send failed</p>
             {% else %}
-              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">Pending</span>
+              <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-600">Pending</span>
             {% endif %}
           </td>
           <td class="px-6 py-3 text-center text-gray-500 text-xs">
