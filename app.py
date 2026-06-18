@@ -103,25 +103,61 @@ def _load_brief(campaign_id):
 def parse_recipients(raw_text):
     """Parse recipient lines into dicts.
 
-    Accepted formats (one per line):
-      Vansh, Acme Corp, vansh@example.com
-      Vansh, vansh@example.com
+    Supports comma-separated and tab-separated (paste directly from Excel/Sheets).
+    Auto-detects email column; filters out LinkedIn URLs, phone numbers, NA, websites.
+    Extracts first name (first word of name column) and company automatically.
+
+    Examples that all work:
       vansh@example.com
-    Returns list of {"email": ..., "first_name": ..., "company": ...}
+      Vansh, vansh@example.com
+      Vansh, Ken Research, vansh@example.com
+      Amit Talwar [tab] Country Director [tab] linkedin.com/... [tab] Agco [tab] agco.com [tab] amit@agco.com [tab] NA
     """
+    _JUNK = {"na", "n/a", "-", "--", ""}
+
+    def _is_url(s):
+        return s.startswith("http") or "linkedin.com" in s.lower() or (
+            "." in s and "/" in s
+        )
+
+    def _is_phone(s):
+        stripped = s.replace("+", "").replace(" ", "").replace("-", "")
+        return stripped.isdigit() and len(stripped) >= 7
+
     result = []
     for line in raw_text.splitlines():
         line = line.strip()
         if not line or "@" not in line:
             continue
-        parts = [p.strip() for p in line.split(",")]
-        email_idx = next((i for i, p in enumerate(parts) if "@" in p), None)
+
+        # Detect tab vs comma
+        parts = [p.strip() for p in (line.split("\t") if "\t" in line else line.split(","))]
+
+        # Find email column — has @ but is not a LinkedIn/URL
+        email_idx = next(
+            (i for i, p in enumerate(parts)
+             if "@" in p and not _is_url(p)),
+            None,
+        )
         if email_idx is None:
             continue
-        email = parts[email_idx].lower()
-        non_email = [p for i, p in enumerate(parts) if i != email_idx]
-        first_name = non_email[0] if len(non_email) >= 1 else ""
-        company = non_email[1] if len(non_email) >= 2 else ""
+
+        email = parts[email_idx].lower().strip()
+
+        # Remaining non-junk text columns (no URL, no phone, not NA)
+        text_parts = [
+            p for i, p in enumerate(parts)
+            if i != email_idx
+            and p.lower().strip() not in _JUNK
+            and not _is_url(p)
+            and not _is_phone(p)
+        ]
+
+        # First text part = full name → use only first word as first_name
+        first_name = text_parts[0].split()[0] if text_parts else ""
+        # Second text part = company (keep full string)
+        company = text_parts[1] if len(text_parts) >= 2 else ""
+
         result.append({"email": email, "first_name": first_name, "company": company})
     return result
 
@@ -682,6 +718,9 @@ def get_dashboard_stats():
         validation["skipped"] = validation["invalid"] + validation["risky"]
         validation["checked"] = len(send_details) - validation["unvalidated"]
 
+        failed_count  = sum(1 for d in send_details if d.get("status") == "failed")
+        skipped_count = sum(1 for d in send_details if d.get("status") == "skipped")
+
         campaigns_info.append({
             "id": cid,
             "name": brief.get("name", cid),
@@ -693,6 +732,9 @@ def get_dashboard_stats():
             "sent": sent,
             "total_recipients": progress.get("total_recipients", 0),
             "pending": progress.get("pending", 0),
+            "failed": failed_count,
+            "skipped": skipped_count,
+            "undelivered": failed_count + skipped_count,
             "opens": opens_for_campaign,
             "open_rate": open_rate,
             "replied": replied_count,

@@ -71,6 +71,7 @@
             <th class="px-6 py-3 text-left font-medium">Campaign</th>
             <th class="px-6 py-3 text-left font-medium">Account</th>
             <th class="px-6 py-3 text-center font-medium">Sent</th>
+            <th class="px-6 py-3 text-center font-medium">Undelivered</th>
             <th class="px-6 py-3 text-center font-medium">Opens</th>
             <th class="px-6 py-3 text-center font-medium">Replied</th>
             <th class="px-6 py-3 text-center font-medium">Open Rate</th>
@@ -110,6 +111,16 @@
             </td>
             <td class="px-6 py-3 text-gray-600 whitespace-nowrap">{{ c.account }}</td>
             <td class="px-6 py-3 text-center text-gray-800 font-medium">{{ c.sent }}/{{ c.total_recipients }}</td>
+            <td class="px-6 py-3 text-center">
+              {% if c.undelivered > 0 %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-600"
+                      title="{{ c.failed }} failed, {{ c.skipped }} skipped (Bouncify)">
+                  &#10007; {{ c.undelivered }}
+                </span>
+              {% else %}
+                <span class="text-gray-300 text-xs">—</span>
+              {% endif %}
+            </td>
             <td class="px-6 py-3 text-center text-blue-600 font-medium">{{ c.opens }}</td>
             <td class="px-6 py-3 text-center">
               {% if c.replied > 0 %}
