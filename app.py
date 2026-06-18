@@ -980,7 +980,7 @@ def send_submit():
                     print(f"[ATTACH] Warning: could not save {f.filename}: {e}")
 
     n_steps = len(sequences)
-    campaign_label = sequences[0]["subject"]
+    campaign_label = request.form.get("campaign_name", "").strip() or sequences[0]["subject"]
 
     try:
         create_bulk_campaign(campaign_id, campaign_label, account_num, recipients, sequences)
