@@ -365,7 +365,9 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                 company = rec.get("company", "")
                 try:
                     # Validate on Step 1 only (uses Bouncify credit once per email)
-                    if step_num == 1 and BOUNCIFY_API_KEY:
+                    # Skip validation for internal/trusted domains (they reject verification pings)
+                    _email_domain = email.split("@")[-1].lower() if "@" in email else ""
+                    if step_num == 1 and BOUNCIFY_API_KEY and _email_domain not in INTERNAL_DOMAINS:
                         val_status, val_result = validate_email_bouncify(email)
                         print(f"[VALIDATE] [{val_status.upper()}] {email}: {val_result}")
                         try:
