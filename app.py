@@ -1080,6 +1080,18 @@ def api_metrics(campaign_id):
     })
 
 
+@app.route("/delete/<campaign_id>", methods=["POST"])
+def delete_campaign(campaign_id):
+    try:
+        execute_db("DELETE FROM opens WHERE campaign_id = %s", (campaign_id,))
+        execute_db("DELETE FROM attachments WHERE campaign_id = %s", (campaign_id,))
+        execute_db("DELETE FROM campaigns WHERE campaign_id = %s", (campaign_id,))
+        flash(f"Campaign {campaign_id} deleted.", "success")
+    except Exception as e:
+        flash(f"Error deleting campaign: {str(e)}", "error")
+    return redirect(url_for("dashboard"))
+
+
 @app.route("/resume/<campaign_id>", methods=["POST"])
 def resume_campaign(campaign_id):
     try:
