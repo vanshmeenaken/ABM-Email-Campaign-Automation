@@ -770,6 +770,10 @@ def get_dashboard_stats():
         failed_count  = sum(1 for d in send_details if d.get("status") == "failed")
         skipped_count = sum(1 for d in send_details if d.get("status") == "skipped")
 
+        # Per-step progress — derived from steps_completed so it works for all steps
+        current_step = progress.get("current_step", 1)
+        current_step_sent = sum(1 for d in send_details if current_step in d.get("steps_completed", []))
+
         campaigns_info.append({
             "id": cid,
             "name": brief.get("name", cid),
@@ -779,6 +783,7 @@ def get_dashboard_stats():
             "next_step_send_at": next_send_at,
             "next_send_label": next_send_label,
             "sent": sent,
+            "current_step_sent": current_step_sent,
             "total_recipients": progress.get("total_recipients", 0),
             "pending": progress.get("pending", 0),
             "failed": failed_count,

@@ -111,7 +111,14 @@
               <a href="/campaign/{{ c.id }}" class="block text-xs text-blue-500 hover:underline mt-0.5">Details &rarr;</a>
             </td>
             <td class="px-6 py-3 text-gray-600 whitespace-nowrap">{{ c.account }}</td>
-            <td class="px-6 py-3 text-center text-gray-800 font-medium">{{ c.sent }}/{{ c.total_recipients }}</td>
+            <td class="px-6 py-3 text-center text-gray-800 font-medium">
+              {% if c.total_steps > 1 and c.campaign_status != 'completed' %}
+                <span class="text-gray-500 text-xs font-normal block">Step {{ c.current_step }}</span>
+                {{ c.current_step_sent }}/{{ c.total_recipients }}
+              {% else %}
+                {{ c.sent }}/{{ c.total_recipients }}
+              {% endif %}
+            </td>
             <td class="px-6 py-3 text-center">
               {% if c.undelivered > 0 %}
                 <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-600"
