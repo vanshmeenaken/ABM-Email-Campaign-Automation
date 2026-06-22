@@ -128,12 +128,16 @@
               <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-600">
                 &#10007; Undelivered
               </span>
-              <p class="text-xs text-gray-400 mt-0.5">Skipped (Bouncify)</p>
+              <p class="text-xs text-gray-400 mt-0.5" title="{{ r.skip_reason or '' }}">
+                {{ r.skip_reason or 'Skipped (Bouncify)' }}
+              </p>
             {% elif r.status == 'failed' %}
               <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
                 &#10007; Undelivered
               </span>
-              <p class="text-xs text-gray-400 mt-0.5">Send failed</p>
+              <p class="text-xs text-gray-400 mt-0.5" title="{{ r.fail_reason or '' }}">
+                {{ r.fail_reason or 'Send failed' }}
+              </p>
             {% else %}
               <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-600">Pending</span>
             {% endif %}

@@ -75,7 +75,7 @@ def send_email(account_num, recipient_email, subject="Test Email", body="This is
 
     if account_num not in ACCOUNTS:
         print(f"[ERROR] Invalid account number. Use 1, 2, 3, or 4")
-        return None
+        return False, "Invalid account number"
 
     account = ACCOUNTS[account_num]
 
@@ -88,7 +88,7 @@ def send_email(account_num, recipient_email, subject="Test Email", body="This is
     # Get access token
     access_token = get_access_token(account["client_id"], account["client_secret"])
     if not access_token:
-        return None
+        return False, "OAuth token failed"
 
     # Embed tracking pixel if campaign_id provided
     email_body = body
@@ -144,15 +144,20 @@ def send_email(account_num, recipient_email, subject="Test Email", body="This is
 
         if response.status_code == 202:
             print(f"[OK] Email sent successfully!")
-            return True
+            return True, None
         else:
-            print(f"[FAILED] Failed to send. Status: {response.status_code}")
-            print(f"   Error: {response.text}")
-            return None
+            try:
+                err_body = response.json()
+                err_msg = err_body.get("error", {}).get("message", response.text[:200])
+            except Exception:
+                err_msg = response.text[:200]
+            reason = f"HTTP {response.status_code}: {err_msg}"
+            print(f"[FAILED] Failed to send. {reason}")
+            return False, reason
 
     except Exception as e:
         print(f"[ERROR] Error sending email: {str(e)}")
-        return None
+        return False, str(e)
 
 def read_inbox(account_num, since_dt=None):
     """Read inbox messages for a sender account since a given datetime.

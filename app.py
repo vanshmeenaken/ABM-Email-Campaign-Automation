@@ -470,15 +470,17 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                                 if detail["recipient"] == email:
                                     detail["validation_status"] = val_status
                                     detail["validation_result"] = val_result
-                                    if val_status in ("invalid", "risky"):
+                                    # Skip invalid, risky, AND unknown — only send confirmed valid
+                                    if val_status in ("invalid", "risky", "unknown"):
                                         detail["status"] = "skipped"
+                                        detail["skip_reason"] = f"Bouncify: {val_status} ({val_result})"
                                         prog["pending"] = max(0, prog.get("pending", 1) - 1)
                                     break
                             _save_progress(campaign_id, prog)
                         except Exception:
                             pass
-                        if val_status in ("invalid", "risky"):
-                            print(f"[VALIDATE] Skipping {email} ({val_status})")
+                        if val_status in ("invalid", "risky", "unknown"):
+                            print(f"[VALIDATE] Skipping {email} ({val_status}: {val_result})")
                             continue
 
                     # Check pause flag before each send (catches pause mid-batch)
@@ -502,7 +504,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                     else:
                         graph_atts = []
 
-                    result = send_email(
+                    result, fail_reason = send_email(
                         account_num=account_num,
                         recipient_email=email,
                         subject=p_subject,
@@ -524,11 +526,13 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                                     detail["status"] = "sent"
                                     detail["step"] = step_num
                                     detail["sent_at"] = datetime.now().isoformat()
+                                    detail.pop("fail_reason", None)
                                     if step_num == 1:
                                         prog["sent"] = prog.get("sent", 0) + 1
                                         prog["pending"] = max(0, prog.get("pending", 1) - 1)
                                 else:
                                     detail["status"] = "failed"
+                                    detail["fail_reason"] = fail_reason or "Graph API error"
                                     if step_num == 1:
                                         prog["failed"] = prog.get("failed", 0) + 1
                                         prog["pending"] = max(0, prog.get("pending", 1) - 1)
