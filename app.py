@@ -437,6 +437,15 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                 and r["email"] not in skipped_emails
             ]
 
+            # Abort if campaign was paused while we were waiting
+            try:
+                live_status = _load_progress(campaign_id).get("campaign_status", "active")
+                if live_status == "paused":
+                    print(f"[{campaign_id}] Paused — aborting worker.")
+                    return
+            except Exception:
+                pass
+
             print(f"[{campaign_id}] Step {step_num}: sending to {len(need_step)} recipients "
                   f"(skipping {len(recipients) - len(need_step)} already sent/replied)...")
 
@@ -471,6 +480,14 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                         if val_status in ("invalid", "risky"):
                             print(f"[VALIDATE] Skipping {email} ({val_status})")
                             continue
+
+                    # Check pause flag before each send (catches pause mid-batch)
+                    try:
+                        if _load_progress(campaign_id).get("campaign_status") == "paused":
+                            print(f"[{campaign_id}] Paused mid-step — aborting worker.")
+                            return
+                    except Exception:
+                        pass
 
                     if sends_attempted > 0:
                         time.sleep(random.uniform(240, 300))  # 4-5 min anti-spam gap
@@ -1227,6 +1244,73 @@ def campaign_detail(campaign_id):
     )
 
 
+@app.route("/pause-all", methods=["POST"])
+def pause_all():
+    try:
+        all_campaigns = query_db("SELECT campaign_id, progress FROM campaigns")
+        paused = 0
+        for row in all_campaigns:
+            prog = row["progress"] if isinstance(row["progress"], dict) else json.loads(row["progress"])
+            if prog.get("campaign_status") not in ("completed", "paused"):
+                prog["campaign_status"] = "paused"
+                prog["last_update"] = datetime.now().isoformat()
+                _save_progress(row["campaign_id"], prog)
+                paused += 1
+        flash(f"All campaigns paused ({paused} stopped). Running threads will halt before their next send.", "success")
+    except Exception as e:
+        flash(f"Error pausing campaigns: {e}", "error")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/resume-all", methods=["POST"])
+def resume_all():
+    try:
+        all_campaigns = query_db("SELECT campaign_id, brief, progress FROM campaigns")
+        resumed = 0
+        for row in all_campaigns:
+            brief = row["brief"] if isinstance(row["brief"], dict) else json.loads(row["brief"])
+            prog = row["progress"] if isinstance(row["progress"], dict) else json.loads(row["progress"])
+            cid = row["campaign_id"]
+            if prog.get("campaign_status") != "paused":
+                continue
+
+            # Restore to waiting or active based on whether a next_step time exists
+            next_send_at = prog.get("next_step_send_at")
+            if next_send_at:
+                prog["campaign_status"] = "waiting"
+            else:
+                prog["campaign_status"] = "active"
+            prog["last_update"] = datetime.now().isoformat()
+            _save_progress(cid, prog)
+
+            # Restart worker thread
+            current_step = prog.get("current_step", 1)
+            all_sequences = brief.get("email_sequences", [])
+            pending = [
+                {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
+                for d in prog.get("send_details", [])
+                if current_step not in d.get("steps_completed", [])
+                and d.get("status") not in ("failed", "skipped")
+                and not d.get("replied")
+            ]
+            if not pending:
+                continue
+            remaining_seqs = [s for s in all_sequences if s["step"] >= current_step] or all_sequences
+            account_num = brief.get("account_number", "1")
+            tracker_url = get_tracker_url()
+            threading.Thread(
+                target=bulk_send_worker,
+                args=(cid, account_num, pending, remaining_seqs, tracker_url),
+                daemon=True,
+            ).start()
+            resumed += 1
+
+        flash(f"All paused campaigns resumed ({resumed} restarted).", "success")
+    except Exception as e:
+        flash(f"Error resuming campaigns: {e}", "error")
+    return redirect(url_for("dashboard"))
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"}), 200
@@ -1335,7 +1419,7 @@ def auto_resume_pending_campaigns():
             campaign_id = row["campaign_id"]
 
             campaign_status = progress.get("campaign_status", "active")
-            if campaign_status == "completed":
+            if campaign_status in ("completed", "paused"):
                 continue
 
             current_step = progress.get("current_step", 1)

@@ -51,16 +51,34 @@
 
   <!-- Campaigns table -->
   <div class="flex-1 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+    <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
       <div class="flex items-center gap-3">
         <h3 class="font-semibold text-gray-800">All Campaigns</h3>
         <span class="text-xs text-gray-400">Auto-refreshes in <span id="refresh-countdown">20</span></span>
       </div>
-      <a href="{{ url_for('send_form') }}"
-         class="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-blue-600
-                hover:bg-blue-700 px-3 py-1.5 rounded-lg transition">
-        + Send Email
-      </a>
+      <div class="flex items-center gap-2">
+        <form method="POST" action="/pause-all"
+              onsubmit="return confirm('Pause ALL active campaigns? Running threads will stop before their next email.')">
+          <button type="submit"
+                  class="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-red-500
+                         hover:bg-red-600 px-3 py-1.5 rounded-lg transition">
+            &#9646;&#9646; Pause All
+          </button>
+        </form>
+        <form method="POST" action="/resume-all"
+              onsubmit="return confirm('Resume ALL paused campaigns?')">
+          <button type="submit"
+                  class="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-green-600
+                         hover:bg-green-700 px-3 py-1.5 rounded-lg transition">
+            &#9654; Resume All
+          </button>
+        </form>
+        <a href="{{ url_for('send_form') }}"
+           class="inline-flex items-center gap-1.5 text-xs font-medium text-white bg-blue-600
+                  hover:bg-blue-700 px-3 py-1.5 rounded-lg transition">
+          + Send Email
+        </a>
+      </div>
     </div>
 
     {% if campaigns %}
@@ -101,6 +119,8 @@
                 {% else %}text-blue-500{% endif %}">
                 {% if c.campaign_status == 'completed' %}
                   All {{ c.total_steps }} steps done
+                {% elif c.campaign_status == 'paused' %}
+                  &#9646;&#9646; Paused at Step {{ c.current_step }}/{{ c.total_steps }}
                 {% elif c.campaign_status == 'waiting' %}
                   Step {{ c.current_step }}/{{ c.total_steps }} &mdash; {{ c.next_send_label }}
                 {% else %}
@@ -155,6 +175,9 @@
             <td class="px-6 py-3 text-center">
               {% if c.campaign_status == 'completed' %}
                 <span class="text-xs text-green-600 font-medium">&#10003; Completed</span>
+
+              {% elif c.campaign_status == 'paused' %}
+                <span class="text-xs text-red-500 font-medium">&#9646;&#9646; Paused</span>
 
               {% elif c.campaign_status == 'waiting' %}
                 <form method="POST" action="/resume/{{ c.id }}" class="inline"
