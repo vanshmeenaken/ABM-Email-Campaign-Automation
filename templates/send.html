@@ -35,17 +35,39 @@
 
         <!-- Recipients -->
         <div>
-          <label for="recipients" class="block text-sm font-medium text-gray-700 mb-1">
-            To (Recipients) <span class="text-red-500">*</span>
+          <label for="recipients_file" class="block text-sm font-medium text-gray-700 mb-1">
+            Recipients File <span class="text-red-500">*</span>
           </label>
-          <textarea id="recipients" name="recipients" rows="6" required
-                    placeholder="Paste directly from Excel/Google Sheets, or type one per line:&#10;&#10;amit.talwar@agcocorp.com&#10;Vansh, vansh@example.com&#10;Amit Talwar, Agco, amit@agco.com"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
-                           placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
-                           focus:border-transparent shadow-sm font-mono resize-y"></textarea>
-          <p class="text-xs text-gray-400 mt-1">
-            <strong class="text-gray-500">Tip:</strong> Select rows in your Excel/Sheets and paste here directly — Name, Company &amp; Email are detected automatically. LinkedIn URLs, phone numbers and "NA" cells are ignored. 4-5 min gap between sends.
-          </p>
+          <input type="file" id="recipients_file" name="recipients_file" accept=".xlsx,.xls,.csv"
+                 class="block w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3
+                        file:rounded file:border-0 file:text-sm file:font-medium
+                        file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+
+          <div class="mt-2 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
+            <strong class="text-gray-600">Excel/CSV column headers required (first row):</strong>
+            <div class="mt-1.5 flex flex-wrap gap-1.5">
+              <span class="font-mono bg-white border border-gray-200 rounded px-1.5 py-0.5">Email</span>
+              <span class="font-mono bg-white border border-gray-200 rounded px-1.5 py-0.5">Name</span>
+              <span class="font-mono bg-white border border-gray-200 rounded px-1.5 py-0.5">Company</span>
+              <span class="font-mono bg-white border border-gray-200 rounded px-1.5 py-0.5">Designation</span>
+            </div>
+            <p class="mt-1.5">Only <span class="font-mono">Email</span> is mandatory — column order doesn't matter, and "Full Name", "Company Name", "Title" / "Job Title" are also recognised.</p>
+          </div>
+
+          <div class="mt-3">
+            <button type="button" onclick="document.getElementById('paste_fallback').classList.toggle('hidden')"
+                    class="text-xs text-blue-500 hover:underline">
+              Or paste recipients manually instead &darr;
+            </button>
+            <div id="paste_fallback" class="hidden mt-2">
+              <textarea id="recipients" name="recipients" rows="5"
+                        placeholder="Paste directly from Excel/Google Sheets, or type one per line:&#10;&#10;amit.talwar@agcocorp.com&#10;Vansh, vansh@example.com&#10;Amit Talwar, Agco, amit@agco.com"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                               placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
+                               focus:border-transparent shadow-sm font-mono resize-y"></textarea>
+              <p class="text-xs text-gray-400 mt-1">Used only if no file is uploaded above. Name, Company &amp; Email are detected automatically.</p>
+            </div>
+          </div>
         </div>
 
         <!-- Campaign Name -->
@@ -89,7 +111,7 @@
       </div>
       <div class="px-8 py-6 space-y-4">
         <div class="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">
-          Use <span class="font-mono font-semibold">{First Name}</span> or <span class="font-mono font-semibold">{Company}</span> in subject or body — replaced per recipient automatically.
+          Use <span class="font-mono font-semibold">{First Name}</span>, <span class="font-mono font-semibold">{Company}</span> or <span class="font-mono font-semibold">{Designation}</span> in subject or body — replaced per recipient automatically.
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Subject <span class="text-red-500">*</span></label>
@@ -100,12 +122,19 @@
                         focus:border-transparent shadow-sm" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Message Body</label>
-          <textarea name="body_1" rows="6"
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium text-gray-700">Message Body</label>
+            <button type="button" onclick="insertBold('body_1')" title="Select text, then click to bold it"
+                    class="text-xs font-bold border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-100">
+              B
+            </button>
+          </div>
+          <textarea name="body_1" id="body_1" rows="6"
                     placeholder="Hi {First Name},&#10;&#10;Write your Step 1 email here. HTML is supported."
                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
                            placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
                            focus:border-transparent shadow-sm resize-y font-mono"></textarea>
+          <p class="text-xs text-gray-400 mt-1">Select text and click <strong>B</strong> to bold it.</p>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Attachments <span class="text-gray-400 font-normal">(images, PDF, Excel)</span></label>
@@ -155,12 +184,19 @@
                         focus:border-transparent shadow-sm" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Message Body</label>
-          <textarea name="body_2" rows="6"
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium text-gray-700">Message Body</label>
+            <button type="button" onclick="insertBold('body_2')" title="Select text, then click to bold it"
+                    class="text-xs font-bold border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-100">
+              B
+            </button>
+          </div>
+          <textarea name="body_2" id="body_2" rows="6"
                     placeholder="Write your Step 2 follow-up here."
                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
                            placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
                            focus:border-transparent shadow-sm resize-y font-mono"></textarea>
+          <p class="text-xs text-gray-400 mt-1">Select text and click <strong>B</strong> to bold it.</p>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Attachments <span class="text-gray-400 font-normal">(images, PDF, Excel)</span></label>
@@ -210,12 +246,19 @@
                         focus:border-transparent shadow-sm" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Message Body</label>
-          <textarea name="body_3" rows="6"
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium text-gray-700">Message Body</label>
+            <button type="button" onclick="insertBold('body_3')" title="Select text, then click to bold it"
+                    class="text-xs font-bold border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-100">
+              B
+            </button>
+          </div>
+          <textarea name="body_3" id="body_3" rows="6"
                     placeholder="Write your Step 3 final follow-up here."
                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
                            placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
                            focus:border-transparent shadow-sm resize-y font-mono"></textarea>
+          <p class="text-xs text-gray-400 mt-1">Select text and click <strong>B</strong> to bold it.</p>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Attachments <span class="text-gray-400 font-normal">(images, PDF, Excel)</span></label>
@@ -279,6 +322,21 @@
 </div>
 
 <script>
+function insertBold(textareaId) {
+  const ta = document.getElementById(textareaId);
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const selected = ta.value.substring(start, end);
+  if (!selected) {
+    alert('Select the text you want to bold first, then click B.');
+    return;
+  }
+  ta.value = ta.value.substring(0, start) + '**' + selected + '**' + ta.value.substring(end);
+  ta.focus();
+  ta.selectionStart = start;
+  ta.selectionEnd = end + 4;
+}
+
 function toggleStep(num) {
   const cb = document.getElementById('enable_step' + num);
   const body = document.getElementById('step' + num + '_body');

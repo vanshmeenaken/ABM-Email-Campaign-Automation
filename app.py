@@ -100,37 +100,61 @@ def _load_brief(campaign_id):
 # Personalization helpers
 # ---------------------------------------------------------------------------
 
+_JUNK = {"na", "n/a", "-", "--", ""}
+
+
+def _is_url(s):
+    sl = s.lower()
+    return s.startswith("http") or "linkedin.com" in sl or (
+        "." in s and "/" in s and "@" not in s
+    )
+
+
+def _is_phone(s):
+    stripped = s.replace("+", "").replace(" ", "").replace("-", "")
+    return stripped.isdigit() and len(stripped) >= 7
+
+
+def _find_col(headers, *keywords):
+    for i, h in enumerate(headers):
+        if any(k in h.lower() for k in keywords):
+            return i
+    return None
+
+
+def _row_to_recipient(parts, email_col, name_col, company_col, designation_col):
+    """Build a recipient dict from one row of cell values, given column indices."""
+    email = parts[email_col].strip().lower() if email_col is not None and email_col < len(parts) else ""
+    if not email or email in _JUNK or "@" not in email:
+        return None
+
+    raw_name = parts[name_col].strip() if name_col is not None and name_col < len(parts) else ""
+    first_name = raw_name.split()[0] if raw_name else ""
+
+    company = parts[company_col].strip() if company_col is not None and company_col < len(parts) else ""
+    if company.lower() in _JUNK:
+        company = ""
+
+    designation = parts[designation_col].strip() if designation_col is not None and designation_col < len(parts) else ""
+    if designation.lower() in _JUNK:
+        designation = ""
+
+    return {"email": email, "first_name": first_name, "company": company, "designation": designation}
+
+
 def parse_recipients(raw_text):
     """Parse recipient lines into dicts.
 
     Supports:
     1. Header-aware tab/comma-separated (paste from Excel/Sheets with column headers).
-       Recognises columns: Email, Full Name / Name, Company Name / Company, etc.
+       Recognises columns: Email, Full Name / Name, Company Name / Company, Designation / Title.
        Skips rows where the email cell is empty or "NA".
     2. Headerless tab-separated — auto-detects email column by @, heuristically
        picks name and company from remaining text fields.
     3. Simple comma-separated: "Name, Company, email" or "Name, email" or "email".
 
-    Returns list of {"email": ..., "first_name": ..., "company": ...}
+    Returns list of {"email": ..., "first_name": ..., "company": ..., "designation": ...}
     """
-    _JUNK = {"na", "n/a", "-", "--", ""}
-
-    def _is_url(s):
-        sl = s.lower()
-        return s.startswith("http") or "linkedin.com" in sl or (
-            "." in s and "/" in s and not "@" in s
-        )
-
-    def _is_phone(s):
-        stripped = s.replace("+", "").replace(" ", "").replace("-", "")
-        return stripped.isdigit() and len(stripped) >= 7
-
-    def _find_col(headers, *keywords):
-        for i, h in enumerate(headers):
-            if any(k in h.lower() for k in keywords):
-                return i
-        return None
-
     lines = [l for l in raw_text.splitlines() if l.strip()]
     if not lines:
         return []
@@ -142,14 +166,15 @@ def parse_recipients(raw_text):
     delimiter = "\t" if "\t" in first else ","
     first_parts = [p.strip() for p in first.split(delimiter)]
     has_header = "@" not in first and any(
-        kw in first.lower() for kw in ("email", "name", "company", "linkedin")
+        kw in first.lower() for kw in ("email", "name", "company", "linkedin", "designation", "title")
     )
 
     if has_header:
         headers = [p.lower().strip() for p in first_parts]
-        email_col   = _find_col(headers, "email")
-        name_col    = _find_col(headers, "full name", "name", "prospect_full")
-        company_col = _find_col(headers, "company name", "company", "prospect_company", "organisation")
+        email_col       = _find_col(headers, "email")
+        name_col        = _find_col(headers, "full name", "name", "prospect_full")
+        company_col     = _find_col(headers, "company name", "company", "prospect_company", "organisation")
+        designation_col = _find_col(headers, "designation", "title", "job title", "position")
 
         if email_col is None:
             # No email column found in header — fall through to heuristic
@@ -157,22 +182,9 @@ def parse_recipients(raw_text):
         else:
             for line in lines[1:]:
                 parts = [p.strip() for p in line.split(delimiter)]
-                # Pad short rows
-                while len(parts) <= max(filter(None.__ne__, [email_col, name_col, company_col])):
-                    parts.append("")
-
-                email = parts[email_col].strip().lower() if email_col < len(parts) else ""
-                if not email or email in _JUNK or "@" not in email:
-                    continue  # No email — skip row
-
-                raw_name = parts[name_col].strip() if name_col is not None and name_col < len(parts) else ""
-                first_name = raw_name.split()[0] if raw_name else ""
-
-                company = parts[company_col].strip() if company_col is not None and company_col < len(parts) else ""
-                if company.lower() in _JUNK:
-                    company = ""
-
-                result.append({"email": email, "first_name": first_name, "company": company})
+                rec = _row_to_recipient(parts, email_col, name_col, company_col, designation_col)
+                if rec:
+                    result.append(rec)
             return result
 
     # --- Heuristic mode (no header) ---
@@ -206,29 +218,91 @@ def parse_recipients(raw_text):
         first_name = text_parts[0].split()[0] if text_parts else ""
         company    = text_parts[1] if len(text_parts) >= 2 else ""
 
-        result.append({"email": email, "first_name": first_name, "company": company})
+        result.append({"email": email, "first_name": first_name, "company": company, "designation": ""})
 
     return result
 
 
-def personalize(text, first_name, company=""):
-    """Replace {First Name}, [First Name], {Company}, [Company Name], and variants."""
+def parse_recipients_excel(file_storage):
+    """Parse an uploaded Excel (.xlsx/.xls) or CSV file into recipient dicts.
+
+    Expects a header row with columns: Email, Name (or Full Name), Company (or Company Name),
+    Designation (or Title) — column order doesn't matter, header names are matched case-insensitively.
+
+    Returns list of {"email": ..., "first_name": ..., "company": ..., "designation": ...}
+    """
+    filename = (file_storage.filename or "").lower()
+    rows = []
+
+    if filename.endswith((".xlsx", ".xls")):
+        import openpyxl
+        from io import BytesIO
+        wb = openpyxl.load_workbook(BytesIO(file_storage.read()), data_only=True, read_only=True)
+        ws = wb.active
+        for row in ws.iter_rows(values_only=True):
+            rows.append(["" if c is None else str(c).strip() for c in row])
+    elif filename.endswith(".csv"):
+        import csv, io
+        content = file_storage.read().decode("utf-8", errors="ignore")
+        rows = [[c.strip() for c in row] for row in csv.reader(io.StringIO(content))]
+    else:
+        return []
+
+    rows = [r for r in rows if any(c.strip() for c in r)]
+    if len(rows) < 2:
+        return []
+
+    headers = [h.lower().strip() for h in rows[0]]
+    email_col       = _find_col(headers, "email")
+    name_col        = _find_col(headers, "full name", "name", "prospect_full")
+    company_col     = _find_col(headers, "company name", "company", "prospect_company", "organisation")
+    designation_col = _find_col(headers, "designation", "title", "job title", "position")
+
+    if email_col is None:
+        return []
+
+    result = []
+    for parts in rows[1:]:
+        rec = _row_to_recipient(parts, email_col, name_col, company_col, designation_col)
+        if rec:
+            result.append(rec)
+    return result
+
+
+def personalize(text, first_name, company="", designation=""):
+    """Replace {First Name}, {Company}, {Designation}/{Title}, and bracket variants."""
     name = first_name or ""
     comp = company or ""
+    desig = designation or ""
     for placeholder in ("{First Name}", "{first_name}", "{Name}", "{name}",
                         "[First Name]", "[first name]", "[Name]", "[name]"):
         text = text.replace(placeholder, name)
     for placeholder in ("{Company}", "{company}", "{Company Name}", "{company name}",
                         "[Company]", "[company]", "[Company Name]", "[company name]"):
         text = text.replace(placeholder, comp)
+    for placeholder in ("{Designation}", "{designation}", "{Title}", "{title}",
+                        "{Job Title}", "{job title}",
+                        "[Designation]", "[designation]", "[Title]", "[title]",
+                        "[Job Title]", "[job title]"):
+        text = text.replace(placeholder, desig)
     return text
 
 
-def plain_to_html(text):
-    """Convert plain text body to HTML if it contains no HTML tags."""
+def apply_bold_markdown(text):
+    """Convert **bold** markers (inserted via the Bold button) into <strong> tags."""
     import re
-    if re.search(r'<[a-zA-Z/]', text):
-        return text  # already HTML, leave untouched
+    return re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+
+
+def plain_to_html(text):
+    """Convert plain text body to HTML if it contains no HTML tags. Always applies
+    **bold** markdown conversion first (checked against the pre-conversion text so
+    bolded plain-text emails still get their line breaks converted to <br>)."""
+    import re
+    already_html = bool(re.search(r'<[a-zA-Z/]', text))
+    text = apply_bold_markdown(text)
+    if already_html:
+        return text  # already HTML, leave structure untouched
     # Preserve paragraphs and line breaks
     paragraphs = text.split('\n\n')
     parts = []
@@ -457,6 +531,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                 email = rec["email"]
                 first_name = rec.get("first_name", "")
                 company = rec.get("company", "")
+                designation = rec.get("designation", "")
                 try:
                     # Validate on Step 1 only (uses Bouncify credit once per email)
                     # Skip validation for internal/trusted domains (they reject verification pings)
@@ -495,8 +570,8 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                         time.sleep(random.uniform(240, 300))  # 4-5 min anti-spam gap
                     sends_attempted += 1
 
-                    p_subject = personalize(subject, first_name, company)
-                    p_body = plain_to_html(personalize(body, first_name, company))
+                    p_subject = personalize(subject, first_name, company, designation)
+                    p_body = plain_to_html(personalize(body, first_name, company, designation))
 
                     # Apply attachments — replace markers in body, build graph list
                     if step_attachments:
@@ -607,6 +682,7 @@ def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, se
                 "recipient": r["email"],
                 "first_name": r.get("first_name", ""),
                 "company": r.get("company", ""),
+                "designation": r.get("designation", ""),
                 "step": 0,
                 "steps_completed": [],
                 "status": "pending",
@@ -992,20 +1068,32 @@ def send_form():
 def send_submit():
     account_num = request.form.get("account", "").strip()
     recipients_raw = request.form.get("recipients", "").strip()
+    recipients_file = request.files.get("recipients_file")
     campaign_id = request.form.get("campaign_id", "").strip() or None
     tracker_url = request.form.get("tracker_url", "http://localhost:5000").strip()
 
     if not account_num or account_num not in ACCOUNTS:
         flash("Please select a valid account.", "error")
         return redirect(url_for("send_form"))
-    if not recipients_raw:
-        flash("At least one recipient email is required.", "error")
+    if not recipients_raw and not (recipients_file and recipients_file.filename):
+        flash("Upload a recipients file or paste recipients manually.", "error")
         return redirect(url_for("send_form"))
 
-    recipients = parse_recipients(recipients_raw)
-    if not recipients:
-        flash("No valid email addresses found in recipients field.", "error")
-        return redirect(url_for("send_form"))
+    recipients = []
+    if recipients_file and recipients_file.filename:
+        try:
+            recipients = parse_recipients_excel(recipients_file)
+        except Exception as e:
+            flash(f"Could not read the uploaded file: {e}", "error")
+            return redirect(url_for("send_form"))
+        if not recipients:
+            flash("No valid rows found in the uploaded file. Make sure it has an 'Email' column header.", "error")
+            return redirect(url_for("send_form"))
+    else:
+        recipients = parse_recipients(recipients_raw)
+        if not recipients:
+            flash("No valid email addresses found in recipients field.", "error")
+            return redirect(url_for("send_form"))
 
     sequences = []
     subject_1 = request.form.get("subject_1", "").strip() or "Ken Research Outreach"
@@ -1186,7 +1274,7 @@ def resume_campaign(campaign_id):
         all_sequences = brief.get("email_sequences", [])
 
         pending_recipients = [
-            {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
+            {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", ""), "designation": d.get("designation", "")}
             for d in progress.get("send_details", [])
             if current_step not in d.get("steps_completed", [])
             and d.get("status") not in ("failed", "skipped")
@@ -1194,7 +1282,7 @@ def resume_campaign(campaign_id):
         ]
         if not pending_recipients:
             pending_recipients = [
-                {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
+                {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", ""), "designation": d.get("designation", "")}
                 for d in progress.get("send_details", [])
                 if d.get("status") == "pending"
             ]
@@ -1291,7 +1379,7 @@ def resume_all():
             current_step = prog.get("current_step", 1)
             all_sequences = brief.get("email_sequences", [])
             pending = [
-                {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
+                {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", ""), "designation": d.get("designation", "")}
                 for d in prog.get("send_details", [])
                 if current_step not in d.get("steps_completed", [])
                 and d.get("status") not in ("failed", "skipped")
@@ -1430,7 +1518,7 @@ def auto_resume_pending_campaigns():
             all_sequences = brief.get("email_sequences", [])
 
             pending = [
-                {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
+                {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", ""), "designation": d.get("designation", "")}
                 for d in progress.get("send_details", [])
                 if current_step not in d.get("steps_completed", [])
                 and d.get("status") not in ("failed", "skipped")
@@ -1438,7 +1526,7 @@ def auto_resume_pending_campaigns():
             ]
             if not pending:
                 pending = [
-                    {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", "")}
+                    {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", ""), "designation": d.get("designation", "")}
                     for d in progress.get("send_details", [])
                     if d.get("status") == "pending"
                 ]
