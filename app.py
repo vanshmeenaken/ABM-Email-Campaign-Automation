@@ -294,6 +294,14 @@ def apply_bold_markdown(text):
     return re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
 
 
+def apply_italic_markdown(text):
+    """Convert *italic* markers (inserted via the Italic button) into <em> tags.
+    Must run AFTER apply_bold_markdown — bold's ** pairs are consumed first, leaving
+    only single asterisks behind so this can't misparse a ** pair as two * pairs."""
+    import re
+    return re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+
+
 def apply_link_markdown(text):
     """Convert [text](url) markers (inserted via the Link button) into <a> tags."""
     import re
@@ -306,12 +314,14 @@ def apply_link_markdown(text):
 
 def plain_to_html(text):
     """Convert plain text body to HTML if it contains no HTML tags. Always applies
-    **bold** and [text](url) link markdown conversion first (checked against the
-    pre-conversion text so formatted plain-text emails still get <br> line breaks)."""
+    [text](url) link, **bold**, then *italic* markdown conversion first (checked
+    against the pre-conversion text so formatted plain-text emails still get <br>
+    line breaks)."""
     import re
     already_html = bool(re.search(r'<[a-zA-Z/]', text))
     text = apply_link_markdown(text)
     text = apply_bold_markdown(text)
+    text = apply_italic_markdown(text)
     if already_html:
         return text  # already HTML, leave structure untouched
     # Preserve paragraphs and line breaks
@@ -1706,10 +1716,82 @@ def reply_checker_worker():
                 print(f"[REPLY CHECK ERROR] {row.get('campaign_id', '?')}: {e}")
 
 
+def bounce_checker_worker():
+    """Background thread: polls sender inboxes every 60s for NDR/bounce notifications.
+
+    Graph API's 202 response only means "accepted for relay" — it is not proof of
+    delivery. A hard bounce (bad mailbox, domain rejects address, etc.) arrives later
+    as a separate Mail Delivery System email in the same inbox, completely invisible
+    to the original send call. Without this check, those recipients stay marked
+    "sent"/Delivered forever even though the mail never reached anyone — which is
+    exactly what was driving false "Delivered" counts and repeat bounces hurting
+    sender reputation.
+
+    For each NDR found, the bounced recipient's address is matched by substring
+    against this campaign's own 'sent' recipients (NDR bodies always quote the
+    original address verbatim), then flipped to 'failed' so it shows under
+    Undelivered and is excluded from any further follow-up steps.
+    """
+    import time
+    from send_email import read_bounces
+
+    while True:
+        time.sleep(60)
+        try:
+            all_campaigns = query_db("SELECT campaign_id, brief, progress FROM campaigns")
+        except Exception:
+            continue
+
+        for row in all_campaigns:
+            try:
+                brief = row["brief"] if isinstance(row["brief"], dict) else json.loads(row["brief"])
+                progress = row["progress"] if isinstance(row["progress"], dict) else json.loads(row["progress"])
+                campaign_id = row["campaign_id"]
+
+                account_num = brief.get("account_number", "1")
+                try:
+                    since_dt = datetime.fromisoformat(brief.get("created_at", ""))
+                except Exception:
+                    since_dt = None
+
+                sent_recipients = {
+                    d["recipient"]: d
+                    for d in progress.get("send_details", [])
+                    if d.get("status") == "sent"
+                }
+                if not sent_recipients:
+                    continue
+
+                bounces = read_bounces(account_num, since_dt)
+                if not bounces:
+                    continue
+
+                updated = False
+                for b in bounces:
+                    body_l = b["body_text"].lower()
+                    matched = [email for email in list(sent_recipients.keys()) if email in body_l]
+                    for email in matched:
+                        detail = sent_recipients.pop(email)
+                        detail["status"] = "failed"
+                        detail["fail_reason"] = f"Bounced: {b['subject'][:150]}"
+                        progress["sent"] = max(0, progress.get("sent", 0) - 1)
+                        progress["failed"] = progress.get("failed", 0) + 1
+                        updated = True
+                        print(f"[BOUNCE] {campaign_id}: {email} bounced — {b['subject'][:80]}")
+
+                if updated:
+                    progress["last_update"] = datetime.now().isoformat()
+                    _save_progress(campaign_id, progress)
+
+            except Exception as e:
+                print(f"[BOUNCE CHECK ERROR] {row.get('campaign_id', '?')}: {e}")
+
+
 # Run on startup regardless of whether launched via Python or gunicorn
 init_db()
 auto_resume_pending_campaigns()
 threading.Thread(target=reply_checker_worker, daemon=True).start()
+threading.Thread(target=bounce_checker_worker, daemon=True).start()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))

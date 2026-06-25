@@ -209,6 +209,77 @@ def read_inbox(account_num, since_dt=None):
         return []
 
 
+def read_bounces(account_num, since_dt=None):
+    """Read NDR / bounce notifications (Mail Delivery System, MAILER-DAEMON, postmaster)
+    from a sender account's inbox since a given datetime.
+
+    Graph API only tells us a send was ACCEPTED for relay (status 202) — it does not
+    wait for the receiving server to confirm delivery. A hard bounce (bad mailbox,
+    domain rejects, etc.) comes back later as a separate NDR email in the same inbox.
+    This reads those NDRs with full body text so the caller can match the original
+    bounced recipient address against its own campaign data.
+
+    Returns list of dicts: {"subject", "received_at", "body_text"}
+    """
+    if account_num not in ACCOUNTS:
+        return []
+    account = ACCOUNTS[account_num]
+    access_token = get_access_token(account["client_id"], account["client_secret"])
+    if not access_token:
+        return []
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "Prefer": 'outlook.body-content-type="text"',
+    }
+    params = {
+        "$select": "from,subject,receivedDateTime,body",
+        "$top": "50",
+        "$orderby": "receivedDateTime desc",
+    }
+    if since_dt:
+        since_str = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        params["$filter"] = f"receivedDateTime ge {since_str}"
+
+    try:
+        resp = requests.get(
+            f"https://graph.microsoft.com/v1.0/users/{account['email']}/mailFolders/Inbox/messages",
+            headers=headers,
+            params=params,
+        )
+        if resp.status_code != 200:
+            print(f"[BOUNCE] Account {account_num} read failed: {resp.status_code} {resp.text[:200]}")
+            return []
+
+        bounces = []
+        for m in resp.json().get("value", []):
+            sender = m.get("from", {}).get("emailAddress", {}).get("address", "").lower()
+            subject = m.get("subject", "") or ""
+            subj_l = subject.lower()
+            is_ndr = (
+                "mailer-daemon" in sender
+                or "postmaster" in sender
+                or subj_l.startswith("undeliverable")
+                or subj_l.startswith("undelivered")
+                or "delivery status notification" in subj_l
+                or "delivery has failed" in subj_l
+                or "mail delivery failed" in subj_l
+                or "delivery failure" in subj_l
+            )
+            if not is_ndr:
+                continue
+            bounces.append({
+                "subject": subject,
+                "received_at": m.get("receivedDateTime", ""),
+                "body_text": (m.get("body", {}) or {}).get("content", "") or "",
+            })
+        return bounces
+    except Exception as e:
+        print(f"[BOUNCE ERROR] Account {account_num}: {e}")
+        return []
+
+
 def main():
     """Command line interface"""
     
