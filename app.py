@@ -294,12 +294,23 @@ def apply_bold_markdown(text):
     return re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
 
 
+def apply_link_markdown(text):
+    """Convert [text](url) markers (inserted via the Link button) into <a> tags."""
+    import re
+    return re.sub(
+        r'\[(.+?)\]\((https?://[^\s)]+)\)',
+        r'<a href="\2" target="_blank" style="color:#2563eb;text-decoration:underline;">\1</a>',
+        text,
+    )
+
+
 def plain_to_html(text):
     """Convert plain text body to HTML if it contains no HTML tags. Always applies
-    **bold** markdown conversion first (checked against the pre-conversion text so
-    bolded plain-text emails still get their line breaks converted to <br>)."""
+    **bold** and [text](url) link markdown conversion first (checked against the
+    pre-conversion text so formatted plain-text emails still get <br> line breaks)."""
     import re
     already_html = bool(re.search(r'<[a-zA-Z/]', text))
+    text = apply_link_markdown(text)
     text = apply_bold_markdown(text)
     if already_html:
         return text  # already HTML, leave structure untouched
@@ -423,15 +434,22 @@ def validate_email_bouncify(email):
 # Campaign worker
 # ---------------------------------------------------------------------------
 
-def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_url):
-    """Multi-step campaign sender with full state persistence via Supabase."""
+def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_url, lock_key=None):
+    """Multi-step campaign sender with full state persistence via Supabase.
+
+    lock_key: defaults to campaign_id (one worker per campaign at a time). Pass a
+    distinct key (e.g. f"{campaign_id}:addon:<ts>") for an add-on batch of new
+    recipients added to an already-running campaign, so it isn't blocked by the
+    main worker's lock — both write to the same campaign's send_details.
+    """
     import time, random
+    lock_key = lock_key or campaign_id
 
     with _running_lock:
-        if campaign_id in _running_campaigns:
-            print(f"[SKIP] {campaign_id} already running — duplicate thread blocked")
+        if lock_key in _running_campaigns:
+            print(f"[SKIP] {lock_key} already running — duplicate thread blocked")
             return
-        _running_campaigns.add(campaign_id)
+        _running_campaigns.add(lock_key)
 
     try:
         for seq_idx, seq in enumerate(sequences):
@@ -649,7 +667,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
 
     finally:
         with _running_lock:
-            _running_campaigns.discard(campaign_id)
+            _running_campaigns.discard(lock_key)
 
 
 def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, sequences):
@@ -1334,6 +1352,77 @@ def campaign_detail(campaign_id):
         campaign_id=campaign_id,
         recipients=progress.get("send_details", []),
     )
+
+
+@app.route("/campaign/<campaign_id>/add-recipients", methods=["POST"])
+def add_recipients(campaign_id):
+    """Add more POCs to an existing campaign (running or not) via Excel/CSV upload.
+    New recipients always start at Step 1 of the campaign's own sequence, on their
+    own timeline — independent of whatever step the original batch is currently on."""
+    brief = _load_brief(campaign_id)
+    progress = _load_progress(campaign_id)
+    if not brief:
+        flash(f"Campaign '{campaign_id}' not found.", "error")
+        return redirect(url_for("dashboard"))
+
+    file = request.files.get("recipients_file")
+    if not file or not file.filename:
+        flash("Upload an Excel/CSV file with new recipients.", "error")
+        return redirect(url_for("campaign_detail", campaign_id=campaign_id))
+
+    try:
+        new_recipients = parse_recipients_excel(file)
+    except Exception as e:
+        flash(f"Could not read the uploaded file: {e}", "error")
+        return redirect(url_for("campaign_detail", campaign_id=campaign_id))
+
+    if not new_recipients:
+        flash("No valid rows found. Make sure the file has an 'Email' column header.", "error")
+        return redirect(url_for("campaign_detail", campaign_id=campaign_id))
+
+    existing_emails = {d["recipient"] for d in progress.get("send_details", [])}
+    fresh = [r for r in new_recipients if r["email"] not in existing_emails]
+    skipped_dupes = len(new_recipients) - len(fresh)
+
+    if not fresh:
+        flash(f"All {len(new_recipients)} recipient(s) in this file are already in the campaign.", "error")
+        return redirect(url_for("campaign_detail", campaign_id=campaign_id))
+
+    progress.setdefault("send_details", []).extend([
+        {
+            "recipient": r["email"],
+            "first_name": r.get("first_name", ""),
+            "company": r.get("company", ""),
+            "designation": r.get("designation", ""),
+            "step": 0,
+            "steps_completed": [],
+            "status": "pending",
+            "sent_at": None,
+            "retry_count": 0,
+        }
+        for r in fresh
+    ])
+    progress["total_recipients"] = progress.get("total_recipients", 0) + len(fresh)
+    progress["pending"] = progress.get("pending", 0) + len(fresh)
+    progress["last_update"] = datetime.now().isoformat()
+    _save_progress(campaign_id, progress)
+
+    account_num = brief.get("account_number", "1")
+    sequences = brief.get("email_sequences", [])
+    tracker_url = get_tracker_url()
+    batch_lock_key = f"{campaign_id}:addon:{int(datetime.now().timestamp())}"
+
+    threading.Thread(
+        target=bulk_send_worker,
+        args=(campaign_id, account_num, fresh, sequences, tracker_url, batch_lock_key),
+        daemon=True,
+    ).start()
+
+    msg = f"Added {len(fresh)} new recipient(s) to '{campaign_id}' — starting Step 1 now."
+    if skipped_dupes:
+        msg += f" ({skipped_dupes} already in this campaign, skipped.)"
+    flash(msg, "success")
+    return redirect(url_for("campaign_detail", campaign_id=campaign_id))
 
 
 @app.route("/pause-all", methods=["POST"])
