@@ -415,6 +415,13 @@ def apply_attachments(body, attachments):
 def validate_email_bouncify(email):
     """Validate email via Bouncify. Returns (status, result).
     status: 'valid' | 'invalid' | 'risky' | 'unknown'
+
+    Catch-all ("accept_all") domains report 'deliverable' from Bouncify even though
+    the receiving server accepts every RCPT TO without actually checking the mailbox
+    exists — that's exactly how a dead address on a catch-all domain slips past
+    validation and still hard-bounces later. Treat accept_all/disposable as risky
+    regardless of the headline result, so it's skipped before ever reaching Graph
+    API rather than only being caught after the fact by the bounce-checker.
     """
     if not BOUNCIFY_API_KEY:
         return "unknown", "no_api_key"
@@ -425,17 +432,34 @@ def validate_email_bouncify(email):
             params={"apikey": BOUNCIFY_API_KEY, "email": email},
             timeout=15,
         )
-        if resp.status_code == 200:
-            result = resp.json().get("result", "unknown")
-            if result == "deliverable":
-                return "valid", result
-            elif result == "undeliverable":
-                return "invalid", result
-            elif result == "risky":
-                return "risky", result
-            else:
-                return "unknown", result
-        return "unknown", f"http_{resp.status_code}"
+        if resp.status_code != 200:
+            return "unknown", f"http_{resp.status_code}"
+
+        data = resp.json()
+        result = data.get("result", "unknown")
+
+        is_catch_all = any(
+            data.get(k) in (True, "true", "yes", 1)
+            for k in ("accept_all", "catch_all", "is_catch_all", "catchall")
+        )
+        is_disposable = any(
+            data.get(k) in (True, "true", "yes", 1)
+            for k in ("disposable", "is_disposable")
+        )
+
+        if is_disposable:
+            return "risky", f"{result} (disposable)"
+        if is_catch_all:
+            return "risky", f"{result} (catch_all domain - mailbox existence unconfirmed)"
+
+        if result == "deliverable":
+            return "valid", result
+        elif result == "undeliverable":
+            return "invalid", result
+        elif result == "risky":
+            return "risky", result
+        else:
+            return "unknown", result
     except Exception:
         return "unknown", "error"
 
