@@ -38,6 +38,7 @@ ACCOUNTS = {
     "2": "Archita Singh",
     "3": "Sneha Malhotra",
     "4": "Tanushree Kalita",
+    "5": "Shreya Gupta",
 }
 
 # Prevents duplicate threads running the same campaign simultaneously
