@@ -29,7 +29,7 @@ def validate_email(email):
 
             return {
                 "email": email,
-                "valid": result in ["deliverable", "accept_all"],
+                "valid": result in ["deliverable", "accept_all", "unknown"],
                 "status": result,
                 "message": message,
                 "details": {
