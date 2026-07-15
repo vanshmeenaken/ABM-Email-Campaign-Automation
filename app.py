@@ -1373,6 +1373,64 @@ def resume_campaign(campaign_id):
     return redirect(url_for("dashboard"))
 
 
+@app.route("/retry/<campaign_id>", methods=["POST"])
+def retry_campaign(campaign_id):
+    try:
+        progress = _load_progress(campaign_id)
+        brief = _load_brief(campaign_id)
+
+        if not progress or not brief:
+            flash(f"Campaign '{campaign_id}' not found.", "error")
+            return redirect(url_for("dashboard"))
+
+        all_sequences = brief.get("email_sequences", [])
+        original_recipients = brief.get("recipients", [])
+
+        if not original_recipients:
+            flash(f"No recipients to retry for '{campaign_id}'.", "error")
+            return redirect(url_for("dashboard"))
+
+        retry_recipients = [
+            {"email": r["email"], "first_name": r.get("first_name", ""), "company": r.get("company", ""), "designation": r.get("designation", "")}
+            for r in original_recipients
+        ]
+
+        account_num = brief.get("account_number", "1")
+        tracker_url = get_tracker_url()
+
+        progress["campaign_status"] = "active"
+        progress["current_step"] = 1
+        progress["next_step_send_at"] = None
+        progress["last_update"] = datetime.now().isoformat()
+        progress["send_details"] = [
+            {
+                "recipient": r["email"],
+                "first_name": r.get("first_name", ""),
+                "company": r.get("company", ""),
+                "designation": r.get("designation", ""),
+                "status": "pending",
+                "steps_completed": [],
+                "replied": False,
+            }
+            for r in original_recipients
+        ]
+        _save_progress(campaign_id, progress)
+
+        remaining = all_sequences or [{"step": 1, "delay_days": 0, "subject": "", "body": ""}]
+
+        threading.Thread(
+            target=bulk_send_worker,
+            args=(campaign_id, account_num, retry_recipients, remaining, tracker_url),
+            daemon=True,
+        ).start()
+
+        flash(f"'{campaign_id}': Retrying from Step 1 with all {len(retry_recipients)} recipients.", "success")
+
+    except Exception as e:
+        flash(f"Error retrying campaign: {str(e)}", "error")
+    return redirect(url_for("dashboard"))
+
+
 @app.route("/campaign/<campaign_id>")
 def campaign_detail(campaign_id):
     brief = _load_brief(campaign_id)

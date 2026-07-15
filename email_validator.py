@@ -8,7 +8,7 @@ import requests
 from datetime import datetime
 
 BOUNCIFY_API_URL = "https://api.bouncify.io/v1/verify"
-BOUNCIFY_API_KEY = "cmynmx1adw1cnb1b11zchk6lpk6dux0d"
+BOUNCIFY_API_KEY = "h67uhtj87fe9ujtin0xxdh7tr7dgqmm9"
 
 def validate_email(email):
     """
