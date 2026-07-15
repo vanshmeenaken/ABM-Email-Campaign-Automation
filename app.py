@@ -598,8 +598,8 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                                 if detail["recipient"] == email:
                                     detail["validation_status"] = val_status
                                     detail["validation_result"] = val_result
-                                    # Skip invalid, risky, AND unknown — only send confirmed valid
-                                    if val_status in ("invalid", "risky", "unknown"):
+                                    # Skip invalid and risky only — allow unknown to be sent
+                                    if val_status in ("invalid", "risky"):
                                         detail["status"] = "skipped"
                                         detail["skip_reason"] = f"Bouncify: {val_status} ({val_result})"
                                         prog["pending"] = max(0, prog.get("pending", 1) - 1)
@@ -607,7 +607,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                             _save_progress(campaign_id, prog)
                         except Exception:
                             pass
-                        if val_status in ("invalid", "risky", "unknown"):
+                        if val_status in ("invalid", "risky"):
                             print(f"[VALIDATE] Skipping {email} ({val_status}: {val_result})")
                             continue
 
