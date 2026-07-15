@@ -43,26 +43,26 @@ def validate_email(email):
         else:
             return {
                 "email": email,
-                "valid": False,
-                "status": "validation_error",
-                "message": f"API error: {response.status_code}",
+                "valid": True,
+                "status": "unknown",
+                "message": f"Bouncify API error {response.status_code} - allowing as unknown",
                 "details": {}
             }
 
     except requests.exceptions.Timeout:
         return {
             "email": email,
-            "valid": False,
-            "status": "timeout",
-            "message": "Validation timeout",
+            "valid": True,
+            "status": "unknown",
+            "message": "Validation timeout - allowing as unknown",
             "details": {}
         }
     except Exception as e:
         return {
             "email": email,
-            "valid": False,
-            "status": "error",
-            "message": str(e),
+            "valid": True,
+            "status": "unknown",
+            "message": f"Validation error - allowing as unknown: {str(e)}",
             "details": {}
         }
 
