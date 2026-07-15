@@ -1384,15 +1384,15 @@ def retry_campaign(campaign_id):
             return redirect(url_for("dashboard"))
 
         all_sequences = brief.get("email_sequences", [])
-        original_recipients = brief.get("recipients", [])
+        original_send_details = progress.get("send_details", [])
 
-        if not original_recipients:
+        if not original_send_details:
             flash(f"No recipients to retry for '{campaign_id}'.", "error")
             return redirect(url_for("dashboard"))
 
         retry_recipients = [
-            {"email": r["email"], "first_name": r.get("first_name", ""), "company": r.get("company", ""), "designation": r.get("designation", "")}
-            for r in original_recipients
+            {"email": r["recipient"], "first_name": r.get("first_name", ""), "company": r.get("company", ""), "designation": r.get("designation", "")}
+            for r in original_send_details
         ]
 
         account_num = brief.get("account_number", "1")
@@ -1404,15 +1404,17 @@ def retry_campaign(campaign_id):
         progress["last_update"] = datetime.now().isoformat()
         progress["send_details"] = [
             {
-                "recipient": r["email"],
+                "recipient": r["recipient"],
                 "first_name": r.get("first_name", ""),
                 "company": r.get("company", ""),
                 "designation": r.get("designation", ""),
-                "status": "pending",
+                "step": 0,
                 "steps_completed": [],
-                "replied": False,
+                "status": "pending",
+                "sent_at": None,
+                "retry_count": 0,
             }
-            for r in original_recipients
+            for r in original_send_details
         ]
         _save_progress(campaign_id, progress)
 
