@@ -9,10 +9,15 @@ import sys
 import json
 import requests
 import os
+import re
 from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
+
+def markdown_to_html(text):
+    """Convert markdown links [text](url) to HTML <a href='url'>text</a>"""
+    return re.sub(r'\[([^\]]+)\]\(([^\)]+)\)', r'<a href="\2">\1</a>', text)
 
 # Satellite Accounts Configuration
 TENANT_ID = os.getenv("TENANT_ID")
@@ -96,11 +101,13 @@ def send_email(account_num, recipient_email, subject="Test Email", body="This is
     if not access_token:
         return False, "OAuth token failed"
 
+    # Convert markdown links to HTML
+    email_body = markdown_to_html(body)
+
     # Embed tracking pixel if campaign_id provided
-    email_body = body
     if campaign_id:
         tracking_pixel = f'<img src="{tracker_url}/track/pixel?campaign_id={campaign_id}&recipient={recipient_email}&step={step}" width="1" height="1" alt="" style="display:none;" />'
-        email_body = f"{body}\n{tracking_pixel}"
+        email_body = f"{email_body}\n{tracking_pixel}"
 
     # Build email message
     message = {
