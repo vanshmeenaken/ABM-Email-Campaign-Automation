@@ -97,6 +97,28 @@
                         focus:border-transparent shadow-sm font-mono" />
         </div>
 
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">Step 1 Composer</label>
+          <div class="grid gap-3 md:grid-cols-2">
+            <label class="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 cursor-pointer">
+              <input type="radio" name="template_mode" value="custom" checked onchange="toggleTemplateMode()"
+                     class="mt-1 text-blue-600 focus:ring-blue-500 border-gray-300">
+              <span>
+                <span class="block text-sm font-semibold text-gray-800">Custom Email</span>
+                <span class="block text-xs text-gray-500 mt-0.5">Current editor exactly as-is. Write or paste your own HTML/text.</span>
+              </span>
+            </label>
+            <label class="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 cursor-pointer">
+              <input type="radio" name="template_mode" value="kensight_newsletter" onchange="toggleTemplateMode()"
+                     class="mt-1 text-blue-600 focus:ring-blue-500 border-gray-300">
+              <span>
+                <span class="block text-sm font-semibold text-gray-800">KenSight Newsletter</span>
+                <span class="block text-xs text-gray-500 mt-0.5">Build the newsletter layout automatically and send it through the same campaign flow.</span>
+              </span>
+            </label>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -121,7 +143,7 @@
                         placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
                         focus:border-transparent shadow-sm" />
         </div>
-        <div>
+        <div id="custom_body_builder">
           <div class="flex items-center justify-between mb-1">
             <label class="block text-sm font-medium text-gray-700">Message Body</label>
             <div class="flex items-center gap-1">
@@ -145,6 +167,182 @@
                            placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
                            focus:border-transparent shadow-sm resize-y font-mono"></textarea>
           <p class="text-xs text-gray-400 mt-1">Select text, click <strong>B</strong> bold, <strong>I</strong> italic, or <strong>Link</strong> to hyperlink it (e.g. "book a discovery call").</p>
+        </div>
+        <div id="newsletter_builder" class="hidden space-y-5">
+          <div class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-900">
+            This mode auto-builds Step 1 into a newsletter-style email. Your existing send engine, recipient parsing, tracking, and follow-up steps stay unchanged.
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-2">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Greeting</label>
+              <input name="newsletter_greeting" type="text" value="Hi {first_name},"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              <p class="text-xs text-gray-400 mt-1">Personalization works here, for example <span class="font-mono">{first_name}</span>.</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Brand / Hero Link</label>
+              <input name="newsletter_brand_url" type="url" value="https://www.kenresearch.com"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              <p class="text-xs text-gray-400 mt-1">The top KenSight banner becomes clickable.</p>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Intro Paragraph 1</label>
+            <textarea name="newsletter_intro_1" rows="3"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm resize-y">Welcome to KenSight, our newsletter for leaders who want to see markets more clearly and act before signals become obvious.</textarea>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Intro Paragraph 2</label>
+            <textarea name="newsletter_intro_2" rows="4"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm resize-y">Ken Research is a global market research and consulting firm helping strategy teams make sharper decisions on market attractiveness, growth strategy, expansion, and competitive positioning.</textarea>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Stats Strip</label>
+            <div class="grid gap-3 md:grid-cols-3">
+              <div class="rounded-lg border border-gray-200 p-3">
+                <input name="newsletter_stat_1_value" type="text" value="100,000+"
+                       class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 mb-2
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+                <input name="newsletter_stat_1_label" type="text" value="MARKET REPORTS"
+                       class="w-full rounded-md border border-gray-300 px-3 py-2 text-xs uppercase tracking-wide text-gray-700
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              </div>
+              <div class="rounded-lg border border-gray-200 p-3">
+                <input name="newsletter_stat_2_value" type="text" value="200,000+"
+                       class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 mb-2
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+                <input name="newsletter_stat_2_label" type="text" value="INDUSTRY EXPERTS"
+                       class="w-full rounded-md border border-gray-300 px-3 py-2 text-xs uppercase tracking-wide text-gray-700
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              </div>
+              <div class="rounded-lg border border-gray-200 p-3">
+                <input name="newsletter_stat_3_value" type="text" value="70+"
+                       class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-800 mb-2
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+                <input name="newsletter_stat_3_label" type="text" value="COUNTRIES"
+                       class="w-full rounded-md border border-gray-300 px-3 py-2 text-xs uppercase tracking-wide text-gray-700
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Services Intro</label>
+            <textarea name="newsletter_services_intro" rows="2"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm resize-y">We help clients navigate growth through four core services:</textarea>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Services Bullet List</label>
+            <textarea name="newsletter_services_list" rows="5"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm resize-y font-mono">- Data-driven strategy consulting that turns market intelligence into clear roadmaps.
+- In-depth market intelligence reports decoding market size, competition, pricing, and regulations.
+- End-to-end survey solutions delivering first-hand insights.
+- A curated network of 200,000+ industry professionals for complex business questions.</textarea>
+            <p class="text-xs text-gray-400 mt-1">Use one bullet per line.</p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Insights Intro</label>
+            <textarea name="newsletter_insights_intro" rows="2"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm resize-y">Through KenSight, we bring together our expertise into clear, relevant insights delivered straight to your inbox.</textarea>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Insights Heading</label>
+            <input name="newsletter_insights_heading" type="text" value="Each edition will help you spot:"
+                   class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                          focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Insights Bullet List</label>
+            <textarea name="newsletter_insights_list" rows="5"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm resize-y font-mono">- Market shifts worth watching
+- Metrics that reframe the debate
+- The consulting perspective behind the numbers
+- Early signals before they hit consensus</textarea>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Sign-off</label>
+            <textarea name="newsletter_signoff" rows="3"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                             focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm resize-y">The first edition lands soon.
+-- Ken Research Team</textarea>
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-2">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">CTA Button Text</label>
+              <input name="newsletter_cta_text" type="text" value="Explore Latest Insights"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">CTA Button Link</label>
+              <input name="newsletter_cta_url" type="url" value="https://www.kenresearch.com"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Social Links</label>
+            <div class="grid gap-3 md:grid-cols-2">
+              <input name="newsletter_social_instagram" type="url" placeholder="Instagram URL"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              <input name="newsletter_social_x" type="url" placeholder="X / Twitter URL"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              <input name="newsletter_social_linkedin" type="url" placeholder="LinkedIn URL"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              <input name="newsletter_social_youtube" type="url" placeholder="YouTube URL"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              <input name="newsletter_social_website" type="url" value="https://www.kenresearch.com"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm md:col-span-2" />
+            </div>
+          </div>
+
+          <div class="grid gap-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Footer Line 1</label>
+              <input name="newsletter_footer_line_1" type="text" value="@ 2026 KenSight by Ken Research"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Footer Line 2</label>
+              <input name="newsletter_footer_line_2" type="text" value="India | UAE | Indonesia | Qatar"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+            </div>
+            <div class="grid gap-4 md:grid-cols-2">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Footer Link Text</label>
+                <input name="newsletter_footer_link_text" type="text" value="Prefer Ken Research on Google"
+                       class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Footer Link URL</label>
+                <input name="newsletter_footer_link_url" type="url" value="https://www.google.com/search?q=Ken+Research"
+                       class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              </div>
+            </div>
+          </div>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Attachments <span class="text-gray-400 font-normal">(images, PDF, Excel)</span></label>
@@ -352,6 +550,16 @@
 </div>
 
 <script>
+function toggleTemplateMode() {
+  const selected = document.querySelector('input[name="template_mode"]:checked');
+  const mode = selected ? selected.value : 'custom';
+  const custom = document.getElementById('custom_body_builder');
+  const newsletter = document.getElementById('newsletter_builder');
+
+  custom.classList.toggle('hidden', mode !== 'custom');
+  newsletter.classList.toggle('hidden', mode !== 'kensight_newsletter');
+}
+
 function insertBold(textareaId) {
   const ta = document.getElementById(textareaId);
   const start = ta.selectionStart;
@@ -427,6 +635,10 @@ function toggleStep(num) {
     }
   }
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+  toggleTemplateMode();
+});
 </script>
 
 {% endblock %}

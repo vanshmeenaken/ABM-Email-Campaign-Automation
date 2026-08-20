@@ -334,6 +334,247 @@ def plain_to_html(text):
     return '\n'.join(parts)
 
 
+def format_inline_html(text):
+    """Apply lightweight markdown formatting without wrapping in <p> tags."""
+    text = apply_link_markdown(text or "")
+    text = apply_bold_markdown(text)
+    text = apply_italic_markdown(text)
+    return text
+
+
+def parse_bullet_lines(text):
+    """Parse one bullet per line, tolerating -, *, and bullet prefixes."""
+    items = []
+    for raw in (text or "").splitlines():
+        item = raw.strip()
+        if not item:
+            continue
+        if item[:1] in {"-", "*", "•"}:
+            item = item[1:].strip()
+        if item:
+            items.append(item)
+    return items
+
+
+def render_kensight_newsletter(form):
+    """Render the newsletter template into email-safe HTML."""
+    def value(name, default=""):
+        return (form.get(name, default) or "").strip()
+
+    greeting = value("newsletter_greeting", "Hi {first_name},")
+    intro_1 = value(
+        "newsletter_intro_1",
+        "Welcome to KenSight, our newsletter for leaders who want to see markets more clearly and act before signals become obvious.",
+    )
+    intro_2 = value(
+        "newsletter_intro_2",
+        "Ken Research is a global market research and consulting firm helping strategy teams make sharper decisions on market attractiveness, growth strategy, expansion, and competitive positioning.",
+    )
+
+    stat_1_value = value("newsletter_stat_1_value", "100,000+")
+    stat_1_label = value("newsletter_stat_1_label", "MARKET REPORTS")
+    stat_2_value = value("newsletter_stat_2_value", "200,000+")
+    stat_2_label = value("newsletter_stat_2_label", "INDUSTRY EXPERTS")
+    stat_3_value = value("newsletter_stat_3_value", "70+")
+    stat_3_label = value("newsletter_stat_3_label", "COUNTRIES")
+
+    services_intro = value(
+        "newsletter_services_intro",
+        "We help clients navigate growth through four core services:",
+    )
+    services_items = parse_bullet_lines(value(
+        "newsletter_services_list",
+        "- Data-driven strategy consulting that turns market intelligence into clear roadmaps.\n"
+        "- In-depth market intelligence reports decoding market size, competition, pricing, and regulations.\n"
+        "- End-to-end survey solutions delivering first-hand insights.\n"
+        "- A curated network of 200,000+ industry professionals for complex business questions.",
+    ))
+
+    insights_intro = value(
+        "newsletter_insights_intro",
+        "Through KenSight, we bring together our expertise into clear, relevant insights delivered straight to your inbox.",
+    )
+    insights_heading = value(
+        "newsletter_insights_heading",
+        "Each edition will help you spot:",
+    )
+    insights_items = parse_bullet_lines(value(
+        "newsletter_insights_list",
+        "- Market shifts worth watching\n"
+        "- Metrics that reframe the debate\n"
+        "- The consulting perspective behind the numbers\n"
+        "- Early signals before they hit consensus",
+    ))
+
+    signoff = value(
+        "newsletter_signoff",
+        "The first edition lands soon.\n-- Ken Research Team",
+    )
+    cta_text = value("newsletter_cta_text", "Explore Latest Insights")
+    cta_url = value("newsletter_cta_url", "https://www.kenresearch.com")
+    brand_url = value("newsletter_brand_url", cta_url or "https://www.kenresearch.com")
+
+    footer_line_1 = value("newsletter_footer_line_1", "@ 2026 KenSight by Ken Research")
+    footer_line_2 = value("newsletter_footer_line_2", "India | UAE | Indonesia | Qatar")
+    footer_link_text = value("newsletter_footer_link_text", "Prefer Ken Research on Google")
+    footer_link_url = value("newsletter_footer_link_url", "https://www.google.com/search?q=Ken+Research")
+
+    social_links = [
+        ("IG", value("newsletter_social_instagram")),
+        ("X", value("newsletter_social_x")),
+        ("in", value("newsletter_social_linkedin")),
+        ("YT", value("newsletter_social_youtube")),
+        ("Web", value("newsletter_social_website", "https://www.kenresearch.com")),
+    ]
+
+    social_html = "".join(
+        f"""
+        <a href="{url}" target="_blank"
+           style="display:inline-block;min-width:34px;padding:8px 10px;border-radius:999px;background:#111111;color:#ffffff;
+                  font-size:12px;line-height:12px;font-weight:700;text-decoration:none;text-align:center;margin:0 4px 8px 4px;">
+          {label}
+        </a>
+        """
+        for label, url in social_links if url
+    )
+
+    services_html = "".join(
+        f'<li style="margin:0 0 10px 0;">{format_inline_html(item)}</li>'
+        for item in services_items
+    )
+    insights_html = "".join(
+        f'<li style="margin:0 0 8px 0;">{format_inline_html(item)}</li>'
+        for item in insights_items
+    )
+
+    return f"""
+    <div style="display:none;font-size:1px;color:#f5f5f5;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
+      KenSight by Ken Research
+    </div>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;background:#f3f4f6;margin:0;padding:0;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:640px;width:100%;background:#ffffff;">
+            <tr>
+              <td style="padding:0 0 18px 0;">
+                <a href="{brand_url}" target="_blank" style="text-decoration:none;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#080808;width:100%;">
+                    <tr>
+                      <td style="padding:28px 26px 18px 26px;">
+                        <div style="font-family:Georgia, 'Times New Roman', serif;font-size:34px;line-height:38px;font-weight:700;color:#ffffff;">
+                          <span style="color:#e53935;">Ken</span>Sight
+                          <span style="font-family:Arial, sans-serif;font-size:13px;font-weight:600;color:#d1d5db;">by Ken Research</span>
+                        </div>
+                        <div style="font-family:Arial, sans-serif;font-size:14px;line-height:20px;color:#d1d5db;padding-top:8px;">
+                          Read the market before it moves
+                        </div>
+                        <div style="height:3px;background:linear-gradient(90deg,#7f1d1d 0%,#ef4444 60%,#fecaca 100%);margin-top:18px;"></div>
+                      </td>
+                    </tr>
+                  </table>
+                </a>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:0 28px 6px 28px;font-family:Georgia, 'Times New Roman', serif;font-size:28px;line-height:40px;color:#111827;">
+                {format_inline_html(greeting)}
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:0 28px 6px 28px;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
+                {plain_to_html(intro_1)}
+                {plain_to_html(intro_2)}
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:18px 28px 6px 28px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;background:#353c3c;">
+                  <tr>
+                    <td align="center" style="width:33.33%;padding:18px 8px;border-right:1px solid #515858;">
+                      <div style="font-family:Arial, sans-serif;font-size:18px;line-height:22px;font-weight:700;color:#ffffff;">{format_inline_html(stat_1_value)}</div>
+                      <div style="font-family:Arial, sans-serif;font-size:11px;line-height:14px;font-weight:700;letter-spacing:0.8px;color:#d1d5db;padding-top:6px;">{format_inline_html(stat_1_label)}</div>
+                    </td>
+                    <td align="center" style="width:33.33%;padding:18px 8px;border-right:1px solid #515858;">
+                      <div style="font-family:Arial, sans-serif;font-size:18px;line-height:22px;font-weight:700;color:#ffffff;">{format_inline_html(stat_2_value)}</div>
+                      <div style="font-family:Arial, sans-serif;font-size:11px;line-height:14px;font-weight:700;letter-spacing:0.8px;color:#d1d5db;padding-top:6px;">{format_inline_html(stat_2_label)}</div>
+                    </td>
+                    <td align="center" style="width:33.33%;padding:18px 8px;">
+                      <div style="font-family:Arial, sans-serif;font-size:18px;line-height:22px;font-weight:700;color:#ffffff;">{format_inline_html(stat_3_value)}</div>
+                      <div style="font-family:Arial, sans-serif;font-size:11px;line-height:14px;font-weight:700;letter-spacing:0.8px;color:#d1d5db;padding-top:6px;">{format_inline_html(stat_3_label)}</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:8px 28px 0 28px;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
+                {plain_to_html(services_intro)}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 40px 0 48px;font-family:Georgia, 'Times New Roman', serif;font-size:18px;line-height:30px;color:#111827;">
+                <ul style="margin:0;padding-left:18px;">
+                  {services_html}
+                </ul>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:6px 28px 0 28px;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
+                {plain_to_html(insights_intro)}
+                {plain_to_html(insights_heading)}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 40px 0 48px;font-family:Georgia, 'Times New Roman', serif;font-size:18px;line-height:30px;color:#111827;">
+                <ul style="margin:0;padding-left:18px;">
+                  {insights_html}
+                </ul>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:10px 28px 0 28px;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
+                {plain_to_html(signoff)}
+              </td>
+            </tr>
+
+            <tr>
+              <td align="center" style="padding:30px 28px 18px 28px;">
+                <a href="{cta_url}" target="_blank"
+                   style="display:inline-block;background:#b91c1c;color:#ffffff;text-decoration:none;font-family:Arial, sans-serif;
+                          font-size:15px;line-height:15px;font-weight:700;padding:16px 30px;border-radius:999px;">
+                  {format_inline_html(cta_text)}
+                </a>
+              </td>
+            </tr>
+
+            <tr>
+              <td align="center" style="padding:6px 20px 10px 20px;">
+                {social_html}
+              </td>
+            </tr>
+
+            <tr>
+              <td align="center" style="padding:16px 28px 30px 28px;font-family:Arial, sans-serif;color:#4b5563;">
+                <div style="font-size:12px;line-height:18px;">{format_inline_html(footer_line_1)}</div>
+                <div style="font-size:12px;line-height:18px;padding-top:4px;">{format_inline_html(footer_line_2)}</div>
+                <div style="font-size:12px;line-height:18px;padding-top:6px;">
+                  <a href="{footer_link_url}" target="_blank" style="color:#b91c1c;text-decoration:underline;">{format_inline_html(footer_link_text)}</a>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+    """
+
+
 # ---------------------------------------------------------------------------
 # Attachment helpers
 # ---------------------------------------------------------------------------
@@ -1124,6 +1365,7 @@ def send_submit():
     recipients_file = request.files.get("recipients_file")
     campaign_id = request.form.get("campaign_id", "").strip() or None
     tracker_url = request.form.get("tracker_url", "http://localhost:5000").strip()
+    template_mode = request.form.get("template_mode", "custom").strip() or "custom"
 
     if not account_num or account_num not in ACCOUNTS:
         flash("Please select a valid account.", "error")
@@ -1150,10 +1392,13 @@ def send_submit():
 
     sequences = []
     subject_1 = request.form.get("subject_1", "").strip() or "Ken Research Outreach"
-    body_1 = request.form.get("body_1", "").strip() or (
-        f"<p>This is an outreach email from Ken Research.</p>"
-        f"<p>Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"
-    )
+    if template_mode == "kensight_newsletter":
+        body_1 = render_kensight_newsletter(request.form)
+    else:
+        body_1 = request.form.get("body_1", "").strip() or (
+            f"<p>This is an outreach email from Ken Research.</p>"
+            f"<p>Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"
+        )
     sequences.append({"step": 1, "delay_days": 0, "subject": subject_1, "body": body_1})
 
     for step_num in [2, 3]:
