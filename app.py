@@ -627,6 +627,125 @@ def render_kensight_newsletter(form, asset_base_url=""):
     """
 
 
+def render_kensight_pov_newsletter(form, asset_base_url=""):
+    """Render the compact POV/download KenSight newsletter template."""
+    def value(name, default=""):
+        return (form.get(name, default) or "").strip()
+
+    greeting = value("pov_greeting", "Hi {first_name},")
+    brand_url = value("pov_brand_url", "https://www.kenresearch.com")
+    intro_1 = value(
+        "pov_intro_1",
+        "Most automotive plants already have the robots, AGVs and machine vision systems. What's separating leaders from laggards now is whether those systems talk to each other.",
+    )
+    intro_2 = value(
+        "pov_intro_2",
+        "Global industrial automation spend has grown from $175 billion in 2020 toward a projected $417 billion by 2030. However, plants still running on siloed control, execution and analytics layers are seeing slower feedback loops, weaker traceability and higher integration risk, even with modern equipment on the floor.",
+    )
+    intro_3 = value(
+        "pov_intro_3",
+        "The edge has moved from owning machinery to owning the stack.",
+    )
+    article_title = value("pov_article_title", "Automotive Automation: From Upgrade to Survival Strategy")
+    article_url = value("pov_article_url", "https://www.kenresearch.com")
+    article_suffix = value(
+        "pov_article_suffix",
+        "traces this shift for automotive OEMs, from equipment-led automation to integrated, autonomous operating models.",
+    )
+    download_text = value("pov_download_text", "Download the POV")
+    download_url = value("pov_download_url", article_url or "https://www.kenresearch.com")
+    signoff = value("pov_signoff", "Regards,\nKen Research Team")
+
+    footer_line_1 = value("pov_footer_line_1", "India | UAE | Indonesia | Qatar")
+    footer_line_2 = value("pov_footer_line_2", "&copy;2026 KenSight by Ken Research")
+    footer_link_text = value("pov_footer_link_text", "Prefer Ken Research on Google")
+    footer_link_url = value("pov_footer_link_url", "https://www.google.com/search?q=Ken+Research")
+    unsubscribe_url = value("pov_unsubscribe_url", "https://www.kenresearch.com")
+
+    social_links = [
+        ("mailmodo-website.png", value("pov_social_website", "https://www.kenresearch.com")),
+        ("mailmodo-linkedin.png", value("pov_social_linkedin", "https://www.linkedin.com/company/ken-research")),
+        ("mailmodo-twitter.png", value("pov_social_x", "https://x.com/kenresearch")),
+        ("mailmodo-youtube.png", value("pov_social_youtube", "https://www.youtube.com/@kenresearch")),
+        ("mailmodo-instagram.png", value("pov_social_instagram", "https://www.instagram.com/kenresearch")),
+    ]
+    social_html = "".join(
+        f"""
+                        <td align="center" width="42" style="padding:0 7px;">
+                          <a href="{url}" target="_blank" style="text-decoration:none;">
+                            <img src="{newsletter_asset_url(asset_base_url, filename)}" width="22" height="22" alt=""
+                                 style="display:block;width:22px;height:22px;border:0;outline:none;text-decoration:none;" />
+                          </a>
+                        </td>
+        """
+        for filename, url in social_links
+    )
+    hero_url = newsletter_asset_url(asset_base_url, "mailmodo-hero-banner.jpg")
+
+    return f"""
+    <div style="display:none;font-size:1px;color:#f5f5f5;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
+      KenSight by Ken Research
+    </div>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#f7f7fb" style="width:100%;background-color:#f7f7fb;margin:0;padding:0;">
+      <tr>
+        <td align="center" bgcolor="#f7f7fb" style="padding:24px 12px;background-color:#f7f7fb;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="456" bgcolor="#ffffff" style="width:456px;max-width:456px;background:#ffffff;background-color:#ffffff;">
+            <tr>
+              <td align="center" bgcolor="#ffffff" style="padding:16px 18px 24px 18px;background-color:#ffffff;">
+                <a href="{brand_url}" target="_blank" style="text-decoration:none;">
+                  <img src="{hero_url}" width="420" height="113" alt="KenSight by Ken Research - Read the market before it moves"
+                       style="display:block;width:420px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;" />
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td bgcolor="#ffffff" style="padding:0 14px 0 14px;background-color:#ffffff;font-family:Arial, Helvetica, sans-serif;font-size:12px;line-height:19px;color:#000000;">
+                <p style="margin:0 0 20px 0;">{format_inline_html(greeting)}</p>
+                {plain_to_html(intro_1)}
+                {plain_to_html(intro_2)}
+                {plain_to_html(intro_3)}
+                <p style="margin:0 0 20px 0;">
+                  Our latest POV, <a href="{article_url}" target="_blank" style="color:#ff1f1f;text-decoration:underline;">{format_inline_html(article_title)}</a>, {format_inline_html(article_suffix)}
+                </p>
+                <p style="margin:0 0 20px 0;">
+                  <a href="{download_url}" target="_blank" style="color:#ff1f1f;text-decoration:underline;">{format_inline_html(download_text)}</a>
+                </p>
+                {plain_to_html(signoff)}
+              </td>
+            </tr>
+            <tr>
+              <td align="center" bgcolor="#ffffff" style="padding:48px 14px 34px 14px;background-color:#ffffff;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;">
+                  <tr>
+                    {social_html}
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" bgcolor="#ffffff" style="padding:0 14px 24px 14px;background-color:#ffffff;font-family:Arial, Helvetica, sans-serif;color:#000000;">
+                <div style="font-size:10px;line-height:15px;">{format_inline_html(footer_line_1)}</div>
+                <div style="font-size:10px;line-height:15px;padding-top:6px;">{format_inline_html(footer_line_2)}</div>
+                <div style="font-size:10px;line-height:15px;padding-top:6px;">
+                  <a href="{footer_link_url}" target="_blank" style="color:#ff1f1f;text-decoration:underline;">{format_inline_html(footer_link_text)}</a>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td align="center" bgcolor="#f2f5f8" style="padding:14px 14px 16px 14px;background-color:#f2f5f8;font-family:Arial, Helvetica, sans-serif;color:#9aa7b7;">
+                <div style="font-size:9px;line-height:14px;">powered by <span style="color:#5b6b7a;font-weight:700;">mailmodo</span></div>
+                <div style="font-size:10px;line-height:15px;padding-top:12px;">
+                  <a href="{unsubscribe_url}" target="_blank" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+    """
+
+
 # ---------------------------------------------------------------------------
 # Attachment helpers
 # ---------------------------------------------------------------------------
@@ -1467,7 +1586,11 @@ def send_submit():
     sequences = []
     subject_1 = request.form.get("subject_1", "").strip() or "Ken Research Outreach"
     if template_mode == "kensight_newsletter":
-        body_1 = render_kensight_newsletter(request.form, "cid")
+        newsletter_template = request.form.get("newsletter_template", "overview").strip() or "overview"
+        if newsletter_template == "automotive_pov":
+            body_1 = render_kensight_pov_newsletter(request.form, "cid")
+        else:
+            body_1 = render_kensight_newsletter(request.form, "cid")
     else:
         body_1 = request.form.get("body_1", "").strip() or (
             f"<p>This is an outreach email from Ken Research.</p>"

@@ -173,6 +173,29 @@
             This mode auto-builds Step 1 into a newsletter-style email. Your existing send engine, recipient parsing, tracking, and follow-up steps stay unchanged.
           </div>
 
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Newsletter Template</label>
+            <div class="grid gap-3 md:grid-cols-2">
+              <label class="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 cursor-pointer">
+                <input type="radio" name="newsletter_template" value="overview" checked onchange="toggleNewsletterTemplate()"
+                       class="mt-1 text-blue-600 focus:ring-blue-500 border-gray-300">
+                <span>
+                  <span class="block text-sm font-semibold text-gray-800">KenSight Overview</span>
+                  <span class="block text-xs text-gray-500 mt-0.5">The finalized stats, services, CTA and social footer template.</span>
+                </span>
+              </label>
+              <label class="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 cursor-pointer">
+                <input type="radio" name="newsletter_template" value="automotive_pov" onchange="toggleNewsletterTemplate()"
+                       class="mt-1 text-blue-600 focus:ring-blue-500 border-gray-300">
+                <span>
+                  <span class="block text-sm font-semibold text-gray-800">Automotive POV</span>
+                  <span class="block text-xs text-gray-500 mt-0.5">Compact POV/download layout matching the shared reference.</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div id="overview_newsletter_fields" class="space-y-5">
           <div class="grid gap-4 md:grid-cols-2">
             <div>
               <label class="block text-sm font-medium text-gray-700 mb-1">Greeting</label>
@@ -341,6 +364,90 @@
                        class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
                               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
               </div>
+            </div>
+          </div>
+          </div>
+
+          <div id="pov_newsletter_fields" class="hidden space-y-5">
+            <div class="grid gap-4 md:grid-cols-2">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Greeting</label>
+                <input name="pov_greeting" type="text" value="Hi {first_name},"
+                       class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Brand / Hero Link</label>
+                <input name="pov_brand_url" type="url" value="https://www.kenresearch.com"
+                       class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Paragraph 1</label>
+              <textarea name="pov_intro_1" rows="3"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm resize-y">Most automotive plants already have the robots, AGVs and machine vision systems. What's separating leaders from laggards now is whether those systems talk to each other.</textarea>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Paragraph 2</label>
+              <textarea name="pov_intro_2" rows="5"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm resize-y">Global industrial automation spend has grown from $175 billion in 2020 toward a projected $417 billion by 2030. However, plants still running on siloed control, execution and analytics layers are seeing slower feedback loops, weaker traceability and higher integration risk, even with modern equipment on the floor.</textarea>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Paragraph 3</label>
+              <textarea name="pov_intro_3" rows="2"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm resize-y">The edge has moved from owning machinery to owning the stack.</textarea>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-2">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">POV Title</label>
+                <input name="pov_article_title" type="text" value="Automotive Automation: From Upgrade to Survival Strategy"
+                       class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">POV Link</label>
+                <input name="pov_article_url" type="url" value="https://www.kenresearch.com"
+                       class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">POV Sentence After Link</label>
+              <textarea name="pov_article_suffix" rows="2"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm resize-y">traces this shift for automotive OEMs, from equipment-led automation to integrated, autonomous operating models.</textarea>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-2">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Download Link Text</label>
+                <input name="pov_download_text" type="text" value="Download the POV"
+                       class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Download Link URL</label>
+                <input name="pov_download_url" type="url" value="https://www.kenresearch.com"
+                       class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                              focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" />
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Sign-off</label>
+              <textarea name="pov_signoff" rows="3"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
+                               focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm resize-y">Regards,
+Ken Research Team</textarea>
             </div>
           </div>
         </div>
@@ -558,6 +665,18 @@ function toggleTemplateMode() {
 
   custom.classList.toggle('hidden', mode !== 'custom');
   newsletter.classList.toggle('hidden', mode !== 'kensight_newsletter');
+  toggleNewsletterTemplate();
+}
+
+function toggleNewsletterTemplate() {
+  const selected = document.querySelector('input[name="newsletter_template"]:checked');
+  const template = selected ? selected.value : 'overview';
+  const overview = document.getElementById('overview_newsletter_fields');
+  const pov = document.getElementById('pov_newsletter_fields');
+
+  if (!overview || !pov) return;
+  overview.classList.toggle('hidden', template !== 'overview');
+  pov.classList.toggle('hidden', template !== 'automotive_pov');
 }
 
 function insertBold(textareaId) {
