@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="616" height="166" viewBox="0 0 616 166" role="img" aria-labelledby="title desc">
+  <title id="title">KenSight by Ken Research</title>
+  <desc id="desc">Black grid header with a red market-signal light beam.</desc>
+  <defs>
+    <pattern id="grid" width="24" height="20" patternUnits="userSpaceOnUse">
+      <path d="M24 0H0V20" fill="none" stroke="#292929" stroke-width="0.55" opacity="0.8"/>
+      <circle cx="0" cy="0" r="0.7" fill="#5c2228" opacity="0.5"/>
+    </pattern>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ca2637" stop-opacity="0"/>
+      <stop offset="0.42" stop-color="#f95a70" stop-opacity="0.4"/>
+      <stop offset="0.82" stop-color="#ff5269" stop-opacity="0.98"/>
+      <stop offset="1" stop-color="#ff7082"/>
+    </linearGradient>
+    <radialGradient id="flare" cx="0.89" cy="0.5" r="0.31">
+      <stop offset="0" stop-color="#fff5f7"/>
+      <stop offset="0.08" stop-color="#ffb5c0" stop-opacity="0.95"/>
+      <stop offset="0.34" stop-color="#ff415c" stop-opacity="0.72"/>
+      <stop offset="1" stop-color="#d80e28" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-30%" y="-700%" width="160%" height="1500%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+  </defs>
+  <rect width="616" height="166" fill="#020202"/>
+  <rect width="616" height="166" fill="url(#grid)"/>
+  <rect x="0" y="103" width="616" height="20" fill="url(#flare)"/>
+  <path d="M108 114H616" stroke="#f54960" stroke-width="1.2" filter="url(#glow)" opacity="0.95"/>
+  <path d="M108 114H616" stroke="url(#beam)" stroke-width="1.25"/>
+  <text x="30" y="80" fill="#e83f50" font-family="Georgia, 'Times New Roman', serif" font-size="45" font-weight="700">Ken</text>
+  <text x="127" y="80" fill="#ffffff" font-family="Georgia, 'Times New Roman', serif" font-size="45" font-weight="700">Sight</text>
+  <text x="237" y="80" fill="#e9e9e9" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="600">by Ken Research</text>
+  <text x="30" y="107" fill="#d4d4d4" font-family="Arial, Helvetica, sans-serif" font-size="14">Read the market before it moves</text>
+</svg>

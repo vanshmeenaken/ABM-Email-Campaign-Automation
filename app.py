@@ -4,6 +4,8 @@ Ken Research - Email Campaign Web App
 Unified Flask app combining email sending, tracking, and campaign dashboard.
 """
 
+import base64
+import mimetypes
 import os
 import json
 import socket
@@ -13,7 +15,7 @@ from io import BytesIO
 
 import psycopg2
 import psycopg2.extras
-from flask import Flask, request, send_file, render_template, redirect, url_for, jsonify, flash
+from flask import Flask, request, send_file, send_from_directory, render_template, redirect, url_for, jsonify, flash
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -25,6 +27,32 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 BOUNCIFY_API_KEY = os.getenv("BOUNCIFY_API_KEY", "")
+NEWSLETTER_ASSETS_DIR = os.path.join(app.root_path, "assets", "newsletter")
+NEWSLETTER_ASSET_FILES = {
+    "kensight-newsletter-hero.svg",
+    "kensight-social-icons.svg",
+    "ken-research-footer-mark.svg",
+    "kensight-newsletter-hero.png",
+    "kensight-social-icons.png",
+    "kensight-cta.png",
+    "ken-research-footer-mark.png",
+    "mailmodo-hero-banner.jpg",
+    "mailmodo-instagram.png",
+    "mailmodo-twitter.png",
+    "mailmodo-linkedin.png",
+    "mailmodo-youtube.png",
+    "mailmodo-website.png",
+    "mailmodo-footer-logo.png",
+}
+NEWSLETTER_INLINE_ASSET_FILES = (
+    "mailmodo-hero-banner.jpg",
+    "mailmodo-instagram.png",
+    "mailmodo-twitter.png",
+    "mailmodo-linkedin.png",
+    "mailmodo-youtube.png",
+    "mailmodo-website.png",
+    "mailmodo-footer-logo.png",
+)
 
 # 1x1 transparent PNG pixel
 PIXEL = (
@@ -356,7 +384,14 @@ def parse_bullet_lines(text):
     return items
 
 
-def render_kensight_newsletter(form):
+def newsletter_asset_url(asset_base_url, filename):
+    if (asset_base_url or "").strip().lower() == "cid":
+        return f"cid:{filename}"
+    base = (asset_base_url or "").strip().rstrip("/")
+    return f"{base}/assets/newsletter/{filename}" if base else f"/assets/newsletter/{filename}"
+
+
+def render_kensight_newsletter(form, asset_base_url=""):
     """Render the newsletter template into email-safe HTML."""
     def value(name, default=""):
         return (form.get(name, default) or "").strip()
@@ -414,29 +449,31 @@ def render_kensight_newsletter(form):
     cta_url = value("newsletter_cta_url", "https://www.kenresearch.com")
     brand_url = value("newsletter_brand_url", cta_url or "https://www.kenresearch.com")
 
-    footer_line_1 = value("newsletter_footer_line_1", "@ 2026 KenSight by Ken Research")
+    footer_line_1 = value("newsletter_footer_line_1", "&copy; 2026 KenSight by Ken Research")
     footer_line_2 = value("newsletter_footer_line_2", "India | UAE | Indonesia | Qatar")
     footer_link_text = value("newsletter_footer_link_text", "Prefer Ken Research on Google")
     footer_link_url = value("newsletter_footer_link_url", "https://www.google.com/search?q=Ken+Research")
 
     social_links = [
-        ("IG", value("newsletter_social_instagram")),
-        ("X", value("newsletter_social_x")),
-        ("in", value("newsletter_social_linkedin")),
-        ("YT", value("newsletter_social_youtube")),
-        ("Web", value("newsletter_social_website", "https://www.kenresearch.com")),
+        ("mailmodo-instagram.png", value("newsletter_social_instagram", "https://www.instagram.com/kenresearch")),
+        ("mailmodo-twitter.png", value("newsletter_social_x", "https://x.com/kenresearch")),
+        ("mailmodo-linkedin.png", value("newsletter_social_linkedin", "https://www.linkedin.com/company/ken-research")),
+        ("mailmodo-youtube.png", value("newsletter_social_youtube", "https://www.youtube.com/@kenresearch")),
+        ("mailmodo-website.png", value("newsletter_social_website", "https://www.kenresearch.com")),
     ]
-
     social_html = "".join(
         f"""
-        <a href="{url}" target="_blank"
-           style="display:inline-block;min-width:34px;padding:8px 10px;border-radius:999px;background:#111111;color:#ffffff;
-                  font-size:12px;line-height:12px;font-weight:700;text-decoration:none;text-align:center;margin:0 4px 8px 4px;">
-          {label}
-        </a>
+                <td align="center" width="50" style="padding:0 7px;">
+                  <a href="{url}" target="_blank" style="text-decoration:none;">
+                    <img src="{newsletter_asset_url(asset_base_url, filename)}" width="36" height="36" alt=""
+                         style="display:block;width:36px;height:36px;border:0;outline:none;text-decoration:none;" />
+                  </a>
+                </td>
         """
-        for label, url in social_links if url
+        for filename, url in social_links
     )
+    hero_url = newsletter_asset_url(asset_base_url, "mailmodo-hero-banner.jpg")
+    footer_mark_url = newsletter_asset_url(asset_base_url, "mailmodo-footer-logo.png")
 
     services_html = "".join(
         f'<li style="margin:0 0 10px 0;">{format_inline_html(item)}</li>'
@@ -451,27 +488,15 @@ def render_kensight_newsletter(form):
     <div style="display:none;font-size:1px;color:#f5f5f5;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
       KenSight by Ken Research
     </div>
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;background:#f3f4f6;margin:0;padding:0;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#f7f7f7" style="width:100%;background-color:#f7f7f7;margin:0;padding:0;">
       <tr>
-        <td align="center" style="padding:24px 12px;">
-          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:640px;width:100%;background:#ffffff;">
+        <td align="center" bgcolor="#f7f7f7" style="padding:0 12px;background-color:#f7f7f7;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="max-width:640px;width:100%;background:#ffffff;">
             <tr>
-              <td style="padding:0 0 18px 0;">
+              <td align="center" style="padding:4px 0 18px 0;">
                 <a href="{brand_url}" target="_blank" style="text-decoration:none;">
-                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#080808;width:100%;">
-                    <tr>
-                      <td style="padding:28px 26px 18px 26px;">
-                        <div style="font-family:Georgia, 'Times New Roman', serif;font-size:34px;line-height:38px;font-weight:700;color:#ffffff;">
-                          <span style="color:#e53935;">Ken</span>Sight
-                          <span style="font-family:Arial, sans-serif;font-size:13px;font-weight:600;color:#d1d5db;">by Ken Research</span>
-                        </div>
-                        <div style="font-family:Arial, sans-serif;font-size:14px;line-height:20px;color:#d1d5db;padding-top:8px;">
-                          Read the market before it moves
-                        </div>
-                        <div style="height:3px;background:linear-gradient(90deg,#7f1d1d 0%,#ef4444 60%,#fecaca 100%);margin-top:18px;"></div>
-                      </td>
-                    </tr>
-                  </table>
+                  <img src="{hero_url}" width="616" height="166" alt="KenSight by Ken Research - Read the market before it moves"
+                       style="display:block;width:616px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;" />
                 </a>
               </td>
             </tr>
@@ -544,28 +569,55 @@ def render_kensight_newsletter(form):
             </tr>
 
             <tr>
-              <td align="center" style="padding:30px 28px 18px 28px;">
-                <a href="{cta_url}" target="_blank"
-                   style="display:inline-block;background:#b91c1c;color:#ffffff;text-decoration:none;font-family:Arial, sans-serif;
-                          font-size:15px;line-height:15px;font-weight:700;padding:16px 30px;border-radius:999px;">
-                  {format_inline_html(cta_text)}
-                </a>
-              </td>
-            </tr>
-
-            <tr>
-              <td align="center" style="padding:6px 20px 10px 20px;">
-                {social_html}
-              </td>
-            </tr>
-
-            <tr>
-              <td align="center" style="padding:16px 28px 30px 28px;font-family:Arial, sans-serif;color:#4b5563;">
-                <div style="font-size:12px;line-height:18px;">{format_inline_html(footer_line_1)}</div>
-                <div style="font-size:12px;line-height:18px;padding-top:4px;">{format_inline_html(footer_line_2)}</div>
-                <div style="font-size:12px;line-height:18px;padding-top:6px;">
-                  <a href="{footer_link_url}" target="_blank" style="color:#b91c1c;text-decoration:underline;">{format_inline_html(footer_link_text)}</a>
-                </div>
+              <td align="center" bgcolor="#f7f7f7" style="padding:0;background-color:#f7f7f7;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#f7f7f7" style="width:100%;background-color:#f7f7f7;">
+                  <tr>
+                    <td align="center" bgcolor="#f7f7f7" style="padding:36px 28px 58px 28px;background-color:#f7f7f7;">
+                      <!--[if mso]>
+                      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"
+                        href="{cta_url}" style="height:49px;v-text-anchor:middle;width:275px;" arcsize="50%" strokecolor="#bd2029" fillcolor="#bd2029">
+                        <w:anchorlock/>
+                        <center style="color:#ffffff;font-family:Arial, Helvetica, sans-serif;font-size:18px;font-weight:700;">
+                          {format_inline_html(cta_text)}
+                        </center>
+                      </v:roundrect>
+                      <![endif]-->
+                      <!--[if !mso]><!-->
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" width="275" style="width:275px;border-collapse:separate;">
+                        <tr>
+                          <td align="center" bgcolor="#bd2029" height="49" style="height:49px;background-color:#bd2029;border-radius:999px;">
+                            <a href="{cta_url}" target="_blank"
+                               style="display:block;width:275px;height:49px;color:#ffffff;text-decoration:none;font-family:Arial, Helvetica, sans-serif;
+                                      font-size:18px;line-height:49px;font-weight:700;text-align:center;border-radius:999px;">
+                              {format_inline_html(cta_text)}
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+                      <!--<![endif]-->
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" bgcolor="#f7f7f7" style="padding:0 20px 84px 20px;background-color:#f7f7f7;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+                        <tr>
+                          {social_html}
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" bgcolor="#f7f7f7" style="padding:0 28px 28px 28px;background-color:#f7f7f7;font-family:Arial, Helvetica, sans-serif;color:#000000;">
+                      <div style="font-size:14px;line-height:20px;">{format_inline_html(footer_line_1)}</div>
+                      <div style="font-size:14px;line-height:20px;padding-top:8px;">{format_inline_html(footer_line_2)}</div>
+                      <div style="font-size:14px;line-height:20px;padding-top:8px;">
+                        <a href="{footer_link_url}" target="_blank" style="color:#ff1f1f;text-decoration:underline;">{format_inline_html(footer_link_text)}</a>
+                      </div>
+                      <img src="{footer_mark_url}" width="30" height="30" alt="Ken Research"
+                           style="display:block;width:30px;height:30px;border:0;outline:none;text-decoration:none;margin:16px auto 0 auto;" />
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
           </table>
@@ -648,6 +700,28 @@ def apply_attachments(body, attachments):
         })
 
     return body, graph_attachments
+
+
+def newsletter_inline_attachments(body):
+    """Attach built-in newsletter images inline when the template references them."""
+    graph_attachments = []
+    for filename in NEWSLETTER_INLINE_ASSET_FILES:
+        if f"cid:{filename}" not in body:
+            continue
+        path = os.path.join(NEWSLETTER_ASSETS_DIR, filename)
+        if not os.path.isfile(path):
+            print(f"[NEWSLETTER ASSET] Missing inline asset: {filename}")
+            continue
+        with open(path, "rb") as f:
+            content_b64 = base64.b64encode(f.read()).decode("utf-8")
+        graph_attachments.append({
+            "name": filename,
+            "contentType": mimetypes.guess_type(filename)[0] or "application/octet-stream",
+            "contentBytes": content_b64,
+            "contentId": filename,
+            "isInline": True,
+        })
+    return graph_attachments
 
 
 # ---------------------------------------------------------------------------
@@ -866,12 +940,12 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
 
                     p_subject = personalize(subject, first_name, company, designation)
                     p_body = plain_to_html(personalize(body, first_name, company, designation))
+                    graph_atts = newsletter_inline_attachments(p_body)
 
                     # Apply attachments — replace markers in body, build graph list
                     if step_attachments:
-                        p_body, graph_atts = apply_attachments(p_body, step_attachments)
-                    else:
-                        graph_atts = []
+                        p_body, uploaded_atts = apply_attachments(p_body, step_attachments)
+                        graph_atts.extend(uploaded_atts)
 
                     result, fail_reason = send_email(
                         account_num=account_num,
@@ -1393,7 +1467,7 @@ def send_submit():
     sequences = []
     subject_1 = request.form.get("subject_1", "").strip() or "Ken Research Outreach"
     if template_mode == "kensight_newsletter":
-        body_1 = render_kensight_newsletter(request.form)
+        body_1 = render_kensight_newsletter(request.form, "cid")
     else:
         body_1 = request.form.get("body_1", "").strip() or (
             f"<p>This is an outreach email from Ken Research.</p>"
@@ -1472,6 +1546,13 @@ def send_submit():
 # ---------------------------------------------------------------------------
 
 INTERNAL_DOMAINS = {"kenresearch.com"}
+
+@app.route("/assets/newsletter/<path:filename>", methods=["GET"])
+def newsletter_asset(filename):
+    if filename not in NEWSLETTER_ASSET_FILES:
+        return jsonify({"error": "Asset not found"}), 404
+    return send_from_directory(NEWSLETTER_ASSETS_DIR, filename)
+
 
 @app.route("/track/pixel", methods=["GET"])
 def track_pixel():
