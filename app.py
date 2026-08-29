@@ -491,9 +491,9 @@ def render_kensight_newsletter(form, asset_base_url=""):
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#f7f7f7" style="width:100%;background-color:#f7f7f7;margin:0;padding:0;">
       <tr>
         <td align="center" bgcolor="#f7f7f7" style="padding:0 12px;background-color:#f7f7f7;">
-          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="max-width:640px;width:100%;background:#ffffff;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" bgcolor="#ffffff" style="max-width:640px;width:100%;background:#ffffff;background-color:#ffffff;">
             <tr>
-              <td align="center" style="padding:4px 0 18px 0;">
+              <td align="center" bgcolor="#ffffff" style="padding:4px 0 18px 0;background-color:#ffffff;">
                 <a href="{brand_url}" target="_blank" style="text-decoration:none;">
                   <img src="{hero_url}" width="616" height="166" alt="KenSight by Ken Research - Read the market before it moves"
                        style="display:block;width:616px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;" />
@@ -502,20 +502,20 @@ def render_kensight_newsletter(form, asset_base_url=""):
             </tr>
 
             <tr>
-              <td style="padding:0 28px 6px 28px;font-family:Georgia, 'Times New Roman', serif;font-size:28px;line-height:40px;color:#111827;">
+              <td bgcolor="#ffffff" style="padding:0 28px 6px 28px;background-color:#ffffff;font-family:Georgia, 'Times New Roman', serif;font-size:28px;line-height:40px;color:#111827;">
                 {format_inline_html(greeting)}
               </td>
             </tr>
 
             <tr>
-              <td style="padding:0 28px 6px 28px;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
+              <td bgcolor="#ffffff" style="padding:0 28px 6px 28px;background-color:#ffffff;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
                 {plain_to_html(intro_1)}
                 {plain_to_html(intro_2)}
               </td>
             </tr>
 
             <tr>
-              <td style="padding:18px 28px 6px 28px;">
+              <td bgcolor="#ffffff" style="padding:18px 28px 6px 28px;background-color:#ffffff;">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;background:#353c3c;">
                   <tr>
                     <td align="center" style="width:33.33%;padding:18px 8px;border-right:1px solid #515858;">
@@ -536,12 +536,12 @@ def render_kensight_newsletter(form, asset_base_url=""):
             </tr>
 
             <tr>
-              <td style="padding:8px 28px 0 28px;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
+              <td bgcolor="#ffffff" style="padding:8px 28px 0 28px;background-color:#ffffff;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
                 {plain_to_html(services_intro)}
               </td>
             </tr>
             <tr>
-              <td style="padding:0 40px 0 48px;font-family:Georgia, 'Times New Roman', serif;font-size:18px;line-height:30px;color:#111827;">
+              <td bgcolor="#ffffff" style="padding:0 40px 0 48px;background-color:#ffffff;font-family:Georgia, 'Times New Roman', serif;font-size:18px;line-height:30px;color:#111827;">
                 <ul style="margin:0;padding-left:18px;">
                   {services_html}
                 </ul>
@@ -549,13 +549,13 @@ def render_kensight_newsletter(form, asset_base_url=""):
             </tr>
 
             <tr>
-              <td style="padding:6px 28px 0 28px;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
+              <td bgcolor="#ffffff" style="padding:6px 28px 0 28px;background-color:#ffffff;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
                 {plain_to_html(insights_intro)}
                 {plain_to_html(insights_heading)}
               </td>
             </tr>
             <tr>
-              <td style="padding:0 40px 0 48px;font-family:Georgia, 'Times New Roman', serif;font-size:18px;line-height:30px;color:#111827;">
+              <td bgcolor="#ffffff" style="padding:0 40px 0 48px;background-color:#ffffff;font-family:Georgia, 'Times New Roman', serif;font-size:18px;line-height:30px;color:#111827;">
                 <ul style="margin:0;padding-left:18px;">
                   {insights_html}
                 </ul>
@@ -563,16 +563,16 @@ def render_kensight_newsletter(form, asset_base_url=""):
             </tr>
 
             <tr>
-              <td style="padding:10px 28px 0 28px;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
+              <td bgcolor="#ffffff" style="padding:10px 28px 0 28px;background-color:#ffffff;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
                 {plain_to_html(signoff)}
               </td>
             </tr>
 
             <tr>
-              <td align="center" bgcolor="#f7f7f7" style="padding:0;background-color:#f7f7f7;">
-                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#f7f7f7" style="width:100%;background-color:#f7f7f7;">
+              <td align="center" bgcolor="#ffffff" style="padding:0;background-color:#ffffff;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#ffffff" style="width:100%;background-color:#ffffff;">
                   <tr>
-                    <td align="center" bgcolor="#f7f7f7" style="padding:36px 28px 58px 28px;background-color:#f7f7f7;">
+                    <td align="center" bgcolor="#ffffff" style="padding:36px 28px 58px 28px;background-color:#ffffff;">
                       <!--[if mso]>
                       <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"
                         href="{cta_url}" style="height:49px;v-text-anchor:middle;width:275px;" arcsize="50%" strokecolor="#bd2029" fillcolor="#bd2029">
@@ -598,7 +598,7 @@ def render_kensight_newsletter(form, asset_base_url=""):
                     </td>
                   </tr>
                   <tr>
-                    <td align="center" bgcolor="#f7f7f7" style="padding:0 20px 84px 20px;background-color:#f7f7f7;">
+                    <td align="center" bgcolor="#ffffff" style="padding:0 20px 84px 20px;background-color:#ffffff;">
                       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
                         <tr>
                           {social_html}
@@ -607,7 +607,7 @@ def render_kensight_newsletter(form, asset_base_url=""):
                     </td>
                   </tr>
                   <tr>
-                    <td align="center" bgcolor="#f7f7f7" style="padding:0 28px 28px 28px;background-color:#f7f7f7;font-family:Arial, Helvetica, sans-serif;color:#000000;">
+                    <td align="center" bgcolor="#ffffff" style="padding:0 28px 28px 28px;background-color:#ffffff;font-family:Arial, Helvetica, sans-serif;color:#000000;">
                       <div style="font-size:14px;line-height:20px;">{format_inline_html(footer_line_1)}</div>
                       <div style="font-size:14px;line-height:20px;padding-top:8px;">{format_inline_html(footer_line_2)}</div>
                       <div style="font-size:14px;line-height:20px;padding-top:8px;">
