@@ -502,7 +502,7 @@ def render_kensight_newsletter(form, asset_base_url=""):
             </tr>
 
             <tr>
-              <td bgcolor="#ffffff" style="padding:0 28px 6px 28px;background-color:#ffffff;font-family:Georgia, 'Times New Roman', serif;font-size:28px;line-height:40px;color:#111827;">
+              <td bgcolor="#ffffff" style="padding:0 28px 6px 28px;background-color:#ffffff;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
                 {format_inline_html(greeting)}
               </td>
             </tr>
