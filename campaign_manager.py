@@ -19,7 +19,9 @@ ACCOUNTS = {
     "1": "Alina Khan (ABM)",
     "2": "Archita Singh (ABM)",
     "3": "Sneha Malhotra (ABM)",
-    "4": "Tanushree Kalita (ABM)"
+    "4": "Tanushree Kalita (ABM)",
+    "5": "Shreya Gupta (Outlook)",
+    "6": "Ken Research Updates",
 }
 
 def init_database():
@@ -110,7 +112,7 @@ def create_campaign():
     print("\nSelect account:")
     for num, name in ACCOUNTS.items():
         print(f"  {num} = {name}")
-    account_num = input("Account (1-4)? ").strip()
+    account_num = input("Account (1-6)? ").strip()
     if account_num not in ACCOUNTS:
         print("[ERROR] Invalid account")
         return None

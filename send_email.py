@@ -52,6 +52,12 @@ ACCOUNTS = {
         "client_id": os.getenv("ACCOUNT_5_CLIENT_ID"),
         "client_secret": os.getenv("ACCOUNT_5_CLIENT_SECRET"),
         "email": os.getenv("ACCOUNT_5_EMAIL", "Shreya.Gupta@kenresearch.com")
+    },
+    "6": {
+        "name": "Ken Research Updates",
+        "client_id": os.getenv("ACCOUNT_6_CLIENT_ID"),
+        "client_secret": os.getenv("ACCOUNT_6_CLIENT_SECRET"),
+        "email": os.getenv("ACCOUNT_6_EMAIL", "updates@kenresearch.com")
     }
 }
 
@@ -301,9 +307,9 @@ def main():
         print("Ken Research - Satellite Account Email Sender")
         print("="*60)
         print("\nUsage:")
-        print("  python send_email.py --account=<1-5> --to=<email>")
+        print("  python send_email.py --account=<1-6> --to=<email>")
         print("\nOptions:")
-        print("  --account=<1-5>        Satellite account (1=Alina, 2=Archita, 3=Sneha, 4=Tanushree, 5=Shreya)")
+        print("  --account=<1-6>        Satellite account (1=Alina, 2=Archita, 3=Sneha, 4=Tanushree, 5=Shreya, 6=Updates)")
         print("  --to=<email>           Recipient email address (required)")
         print("  --subject=<text>       Email subject (optional)")
         print("  --body=<text>          Email body (optional)")
@@ -343,7 +349,7 @@ def main():
 
     if not account_num or not recipient:
         print("[ERROR] Missing required arguments!")
-        print("   Use: --account=<1-5> and --to=<email>")
+        print("   Use: --account=<1-6> and --to=<email>")
         return
 
     send_email(account_num, recipient, subject, body, campaign_id=campaign_id, step=step, tracker_url=tracker_url)
