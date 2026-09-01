@@ -159,6 +159,10 @@
                       class="text-xs italic font-medium border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-100">
                 I
               </button>
+              <button type="button" onclick="insertUnderline('body_1')" title="Select text, then click to underline it"
+                      class="text-xs underline font-medium border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-100">
+                U
+              </button>
             </div>
           </div>
           <textarea name="body_1" id="body_1" rows="6"
@@ -166,7 +170,7 @@
                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
                            placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
                            focus:border-transparent shadow-sm resize-y font-mono"></textarea>
-          <p class="text-xs text-gray-400 mt-1">Select text, click <strong>B</strong> bold, <strong>I</strong> italic, or <strong>Link</strong> to hyperlink it (e.g. "book a discovery call").</p>
+          <p class="text-xs text-gray-400 mt-1">Select text, click <strong>B</strong> bold, <strong>I</strong> italic, <u>U</u> underline, or <strong>Link</strong> to hyperlink it (e.g. "book a discovery call").</p>
         </div>
         <div id="newsletter_builder" class="hidden space-y-5">
           <div class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-900">
@@ -514,6 +518,10 @@ Ken Research Team</textarea>
                       class="text-xs italic font-medium border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-100">
                 I
               </button>
+              <button type="button" onclick="insertUnderline('body_2')" title="Select text, then click to underline it"
+                      class="text-xs underline font-medium border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-100">
+                U
+              </button>
             </div>
           </div>
           <textarea name="body_2" id="body_2" rows="6"
@@ -521,7 +529,7 @@ Ken Research Team</textarea>
                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
                            placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
                            focus:border-transparent shadow-sm resize-y font-mono"></textarea>
-          <p class="text-xs text-gray-400 mt-1">Select text, click <strong>B</strong> bold, <strong>I</strong> italic, or <strong>Link</strong> to hyperlink it (e.g. "book a discovery call").</p>
+          <p class="text-xs text-gray-400 mt-1">Select text, click <strong>B</strong> bold, <strong>I</strong> italic, <u>U</u> underline, or <strong>Link</strong> to hyperlink it (e.g. "book a discovery call").</p>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Attachments <span class="text-gray-400 font-normal">(images, PDF, Excel)</span></label>
@@ -586,6 +594,10 @@ Ken Research Team</textarea>
                       class="text-xs italic font-medium border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-100">
                 I
               </button>
+              <button type="button" onclick="insertUnderline('body_3')" title="Select text, then click to underline it"
+                      class="text-xs underline font-medium border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-100">
+                U
+              </button>
             </div>
           </div>
           <textarea name="body_3" id="body_3" rows="6"
@@ -593,7 +605,7 @@ Ken Research Team</textarea>
                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
                            placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
                            focus:border-transparent shadow-sm resize-y font-mono"></textarea>
-          <p class="text-xs text-gray-400 mt-1">Select text, click <strong>B</strong> bold, <strong>I</strong> italic, or <strong>Link</strong> to hyperlink it (e.g. "book a discovery call").</p>
+          <p class="text-xs text-gray-400 mt-1">Select text, click <strong>B</strong> bold, <strong>I</strong> italic, <u>U</u> underline, or <strong>Link</strong> to hyperlink it (e.g. "book a discovery call").</p>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Attachments <span class="text-gray-400 font-normal">(images, PDF, Excel)</span></label>
@@ -679,34 +691,32 @@ function toggleNewsletterTemplate() {
   pov.classList.toggle('hidden', template !== 'automotive_pov');
 }
 
-function insertBold(textareaId) {
+function wrapSelection(textareaId, before, after, label) {
   const ta = document.getElementById(textareaId);
+  if (!ta) return;
   const start = ta.selectionStart;
   const end = ta.selectionEnd;
   const selected = ta.value.substring(start, end);
   if (!selected) {
-    alert('Select the text you want to bold first, then click B.');
+    alert('Select the text you want to ' + label + ' first.');
     return;
   }
-  ta.value = ta.value.substring(0, start) + '**' + selected + '**' + ta.value.substring(end);
+  ta.value = ta.value.substring(0, start) + before + selected + after + ta.value.substring(end);
   ta.focus();
   ta.selectionStart = start;
-  ta.selectionEnd = end + 4;
+  ta.selectionEnd = end + before.length + after.length;
+}
+
+function insertBold(textareaId) {
+  wrapSelection(textareaId, '**', '**', 'bold');
 }
 
 function insertItalic(textareaId) {
-  const ta = document.getElementById(textareaId);
-  const start = ta.selectionStart;
-  const end = ta.selectionEnd;
-  const selected = ta.value.substring(start, end);
-  if (!selected) {
-    alert("Select the text you want to italicize first, then click I.");
-    return;
-  }
-  ta.value = ta.value.substring(0, start) + "*" + selected + "*" + ta.value.substring(end);
-  ta.focus();
-  ta.selectionStart = start;
-  ta.selectionEnd = end + 2;
+  wrapSelection(textareaId, '*', '*', 'italicize');
+}
+
+function insertUnderline(textareaId) {
+  wrapSelection(textareaId, '__', '__', 'underline');
 }
 
 function insertLink(textareaId) {
@@ -722,6 +732,62 @@ function insertLink(textareaId) {
   const newPos = start + replacement.length;
   ta.selectionStart = newPos;
   ta.selectionEnd = newPos;
+}
+
+function createFormatButton(label, title, className, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = label;
+  button.title = title;
+  button.className = 'text-xs border border-gray-300 rounded px-2 py-0.5 hover:bg-gray-100 ' + className;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function createFormattingToolbar(textareaId) {
+  const toolbar = document.createElement('div');
+  toolbar.className = 'flex items-center gap-1';
+  toolbar.appendChild(createFormatButton('B', 'Bold selected text', 'font-bold text-gray-600', function() {
+    insertBold(textareaId);
+  }));
+  toolbar.appendChild(createFormatButton('I', 'Italicize selected text', 'italic font-medium text-gray-600', function() {
+    insertItalic(textareaId);
+  }));
+  toolbar.appendChild(createFormatButton('U', 'Underline selected text', 'underline font-medium text-gray-600', function() {
+    insertUnderline(textareaId);
+  }));
+  toolbar.appendChild(createFormatButton('Link', 'Hyperlink selected text', 'font-medium text-blue-600', function() {
+    insertLink(textareaId);
+  }));
+  return toolbar;
+}
+
+function attachNewsletterFormattingToolbars() {
+  document.querySelectorAll('#newsletter_builder textarea').forEach(function(ta, index) {
+    if (ta.dataset.formattingToolbar === 'true') return;
+    if (!ta.id) {
+      ta.id = (ta.name || 'newsletter_field') + '_' + index;
+    }
+
+    const parent = ta.parentElement;
+    if (!parent) return;
+
+    const row = document.createElement('div');
+    row.className = 'flex items-center justify-between gap-3 mb-1';
+
+    const label = Array.from(parent.children).find(function(child) {
+      return child.tagName === 'LABEL';
+    });
+
+    if (label) {
+      label.classList.remove('mb-1');
+      row.appendChild(label);
+    }
+
+    row.appendChild(createFormattingToolbar(ta.id));
+    parent.insertBefore(row, ta);
+    ta.dataset.formattingToolbar = 'true';
+  });
 }
 
 function toggleStep(num) {
@@ -756,6 +822,7 @@ function toggleStep(num) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+  attachNewsletterFormattingToolbars();
   toggleTemplateMode();
 });
 </script>

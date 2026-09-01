@@ -332,6 +332,12 @@ def apply_italic_markdown(text):
     return re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
 
 
+def apply_underline_markdown(text):
+    """Convert __underline__ markers (inserted via the Underline button) into <u> tags."""
+    import re
+    return re.sub(r'__(.+?)__', r'<u>\1</u>', text)
+
+
 def apply_link_markdown(text):
     """Convert [text](url) markers (inserted via the Link button) into <a> tags."""
     import re
@@ -349,6 +355,7 @@ def plain_to_html(text):
     line breaks)."""
     import re
     already_html = bool(re.search(r'<[a-zA-Z/]', text))
+    text = apply_underline_markdown(text)
     text = apply_link_markdown(text)
     text = apply_bold_markdown(text)
     text = apply_italic_markdown(text)
@@ -365,7 +372,8 @@ def plain_to_html(text):
 
 def format_inline_html(text):
     """Apply lightweight markdown formatting without wrapping in <p> tags."""
-    text = apply_link_markdown(text or "")
+    text = apply_underline_markdown(text or "")
+    text = apply_link_markdown(text)
     text = apply_bold_markdown(text)
     text = apply_italic_markdown(text)
     return text
