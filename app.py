@@ -512,7 +512,9 @@ def render_kensight_newsletter(form, asset_base_url=""):
 
             <tr>
               <td bgcolor="#ffffff" style="padding:0 28px 6px 28px;background-color:#ffffff;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;color:#111827;">
-                {format_inline_html(greeting)}
+                <p style="margin:0;font-family:Georgia, 'Times New Roman', serif;font-size:19px;line-height:32px;font-weight:400;color:#111827;">
+                  {format_inline_html(greeting)}
+                </p>
               </td>
             </tr>
 
@@ -584,20 +586,21 @@ def render_kensight_newsletter(form, asset_base_url=""):
                     <td align="center" bgcolor="#ffffff" style="padding:36px 28px 58px 28px;background-color:#ffffff;">
                       <!--[if mso]>
                       <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"
-                        href="{cta_url}" style="height:49px;v-text-anchor:middle;width:275px;" arcsize="50%" strokecolor="#bd2029" fillcolor="#bd2029">
+                        href="{cta_url}" style="height:52px;v-text-anchor:middle;width:330px;" arcsize="50%" strokecolor="#bd2029" fillcolor="#bd2029">
                         <w:anchorlock/>
-                        <center style="color:#ffffff;font-family:Arial, Helvetica, sans-serif;font-size:18px;font-weight:700;">
+                        <center style="color:#ffffff;font-family:Arial, Helvetica, sans-serif;font-size:17px;font-weight:700;white-space:nowrap;">
                           {format_inline_html(cta_text)}
                         </center>
                       </v:roundrect>
                       <![endif]-->
                       <!--[if !mso]><!-->
-                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" width="275" style="width:275px;border-collapse:separate;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" width="330" style="width:330px;max-width:100%;border-collapse:separate;">
                         <tr>
-                          <td align="center" bgcolor="#bd2029" height="49" style="height:49px;background-color:#bd2029;border-radius:999px;">
+                          <td align="center" bgcolor="#bd2029" style="background-color:#bd2029;border-radius:999px;">
                             <a href="{cta_url}" target="_blank"
-                               style="display:block;width:275px;height:49px;color:#ffffff;text-decoration:none;font-family:Arial, Helvetica, sans-serif;
-                                      font-size:18px;line-height:49px;font-weight:700;text-align:center;border-radius:999px;">
+                               style="display:block;color:#ffffff;text-decoration:none;font-family:Arial, Helvetica, sans-serif;
+                                      font-size:17px;line-height:22px;font-weight:700;text-align:center;border-radius:999px;
+                                      padding:15px 24px;white-space:nowrap;mso-line-height-rule:exactly;">
                               {format_inline_html(cta_text)}
                             </a>
                           </td>
