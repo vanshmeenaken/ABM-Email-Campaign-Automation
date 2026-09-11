@@ -98,6 +98,106 @@
   </div>
 </div>
 
+<!-- Campaign segments -->
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
+  <div class="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4 flex-wrap">
+    <div>
+      <h3 class="font-semibold text-gray-800">Campaign Segments</h3>
+      <p class="text-xs text-gray-400 mt-0.5">View and download each group from this same campaign run</p>
+    </div>
+  </div>
+
+  <div class="p-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+    {% for segment in campaign_segments %}
+    <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">{{ segment.label }}</p>
+          <p class="text-2xl font-bold text-gray-800 mt-1">{{ segment.count }}</p>
+        </div>
+        <a href="{{ url_for('download_campaign_segment', campaign_id=campaign_id, segment_key=segment.key) }}"
+           class="text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline whitespace-nowrap">
+          CSV
+        </a>
+      </div>
+      <p class="text-xs text-gray-500 mt-2 leading-relaxed">{{ segment.description }}</p>
+      {% if segment.count > 0 %}
+      <a href="#segment-{{ segment.key }}" class="inline-block text-xs text-blue-500 hover:underline mt-3">
+        View people
+      </a>
+      {% else %}
+      <span class="inline-block text-xs text-gray-300 mt-3">No records</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="border-t border-gray-100 divide-y divide-gray-100">
+    {% for segment in campaign_segments if segment.count > 0 %}
+    <details id="segment-{{ segment.key }}" class="group">
+      <summary class="px-6 py-4 cursor-pointer list-none flex items-center justify-between gap-3 hover:bg-gray-50">
+        <div>
+          <span class="font-medium text-gray-800">{{ segment.label }}</span>
+          <span class="text-sm text-gray-400 ml-2">{{ segment.count }} profile(s)</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <a href="{{ url_for('download_campaign_segment', campaign_id=campaign_id, segment_key=segment.key) }}"
+             onclick="event.stopPropagation()"
+             class="text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline">
+            Download CSV
+          </a>
+          <span class="text-xs text-gray-300 group-open:hidden">Open</span>
+          <span class="text-xs text-gray-300 hidden group-open:inline">Close</span>
+        </div>
+      </summary>
+      <div class="overflow-x-auto border-t border-gray-100">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+            <tr>
+              <th class="px-6 py-3 text-left font-medium">Email</th>
+              <th class="px-6 py-3 text-left font-medium">Name</th>
+              <th class="px-6 py-3 text-left font-medium">Company</th>
+              <th class="px-6 py-3 text-left font-medium">Designation</th>
+              <th class="px-6 py-3 text-center font-medium">Status</th>
+              <th class="px-6 py-3 text-center font-medium">Validation</th>
+              <th class="px-6 py-3 text-center font-medium">Opens</th>
+              <th class="px-6 py-3 text-left font-medium">Reason / Detail</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            {% for r in segment.recipients %}
+            <tr class="hover:bg-gray-50">
+              <td class="px-6 py-3 font-mono text-xs text-gray-700">{{ r.recipient }}</td>
+              <td class="px-6 py-3 text-gray-600">{% if r.first_name %}{{ r.first_name }}{% else %}&mdash;{% endif %}</td>
+              <td class="px-6 py-3 text-gray-600">{% if r.company %}{{ r.company }}{% else %}&mdash;{% endif %}</td>
+              <td class="px-6 py-3 text-gray-600">{% if r.designation %}{{ r.designation }}{% else %}&mdash;{% endif %}</td>
+              <td class="px-6 py-3 text-center">
+                <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold
+                  {% if r.status == 'sent' %}bg-green-100 text-green-700
+                  {% elif r.status in ('failed', 'skipped') %}bg-red-100 text-red-600
+                  {% else %}bg-amber-50 text-amber-600{% endif %}">
+                  {{ r.status | capitalize }}
+                </span>
+              </td>
+              <td class="px-6 py-3 text-center text-xs text-gray-500">
+                {{ r.validation_status or 'Not checked' }}
+              </td>
+              <td class="px-6 py-3 text-center text-blue-600 font-medium">
+                {% if r.open_count > 0 %}{{ r.open_count }}{% else %}<span class="text-gray-300">&mdash;</span>{% endif %}
+              </td>
+              <td class="px-6 py-3 text-xs text-gray-500 max-w-sm truncate" title="{{ r.reason }}">
+                {% if r.reason %}{{ r.reason }}{% else %}&mdash;{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+</div>
+
 <!-- Per-recipient table -->
 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
   <div class="px-6 py-4 border-b border-gray-100">

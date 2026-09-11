@@ -5,17 +5,18 @@ Unified Flask app combining email sending, tracking, and campaign dashboard.
 """
 
 import base64
+import csv
 import mimetypes
 import os
 import json
 import socket
 import threading
 from datetime import datetime, timedelta
-from io import BytesIO
+from io import BytesIO, StringIO
 
 import psycopg2
 import psycopg2.extras
-from flask import Flask, request, send_file, send_from_directory, render_template, redirect, url_for, jsonify, flash
+from flask import Flask, request, send_file, send_from_directory, render_template, redirect, url_for, jsonify, flash, Response
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -1412,6 +1413,157 @@ def get_dashboard_stats():
     }
 
 
+CAMPAIGN_SEGMENT_DEFINITIONS = [
+    {
+        "key": "mails_sent",
+        "label": "Mails Sent",
+        "description": "People whose campaign email was successfully accepted by Graph.",
+    },
+    {
+        "key": "opened",
+        "label": "Opened",
+        "description": "People with at least one tracked open for this campaign.",
+    },
+    {
+        "key": "replied",
+        "label": "Replied",
+        "description": "People who replied, so follow-ups are suppressed.",
+    },
+    {
+        "key": "denied_profiles",
+        "label": "Denied Profiles",
+        "description": "People skipped because validation marked them invalid or risky.",
+    },
+    {
+        "key": "unidentified_profiles",
+        "label": "Unidentified Profiles",
+        "description": "People whose validation came back unknown or has not run yet.",
+    },
+    {
+        "key": "undelivered",
+        "label": "Undelivered",
+        "description": "People where sending failed or a bounce was detected.",
+    },
+    {
+        "key": "pending",
+        "label": "Pending",
+        "description": "People still waiting for the current or next campaign step.",
+    },
+]
+
+
+def _recipient_email(detail):
+    return (detail.get("recipient") or detail.get("email") or "").strip().lower()
+
+
+def _campaign_open_map(campaign_id):
+    rows = query_db(
+        """SELECT recipient, COUNT(*) as open_count, MAX(timestamp) as last_open
+           FROM opens
+           WHERE campaign_id = %s
+           GROUP BY recipient""",
+        (campaign_id,),
+    )
+    return {
+        (row["recipient"] or "").strip().lower(): {
+            "open_count": row["open_count"],
+            "last_open": row["last_open"],
+        }
+        for row in rows
+        if row.get("recipient")
+    }
+
+
+def _segment_reason(detail, open_info=None):
+    if detail.get("skip_reason"):
+        return detail.get("skip_reason")
+    if detail.get("fail_reason"):
+        return detail.get("fail_reason")
+    if detail.get("validation_result"):
+        return detail.get("validation_result")
+    if detail.get("replied"):
+        return detail.get("reply_subject") or "Reply detected"
+    if open_info:
+        return f"{open_info.get('open_count', 0)} open(s) tracked"
+    return ""
+
+
+def _segment_recipient(detail, open_info=None):
+    open_info = open_info or {}
+    return {
+        "recipient": _recipient_email(detail),
+        "first_name": detail.get("first_name", ""),
+        "company": detail.get("company", ""),
+        "designation": detail.get("designation", ""),
+        "status": detail.get("status", "pending"),
+        "validation_status": detail.get("validation_status", ""),
+        "validation_result": detail.get("validation_result", ""),
+        "steps_completed": detail.get("steps_completed", []),
+        "sent_at": detail.get("sent_at"),
+        "replied": bool(detail.get("replied")),
+        "replied_at": detail.get("replied_at"),
+        "reply_subject": detail.get("reply_subject", ""),
+        "open_count": open_info.get("open_count", 0),
+        "last_open": open_info.get("last_open"),
+        "reason": _segment_reason(detail, open_info),
+    }
+
+
+def build_campaign_segments(campaign_id, progress):
+    """Group a campaign's recipient records into dashboard/download segments."""
+    segments = {
+        item["key"]: {**item, "count": 0, "recipients": []}
+        for item in CAMPAIGN_SEGMENT_DEFINITIONS
+    }
+    send_details = progress.get("send_details", []) or []
+    opens_by_email = _campaign_open_map(campaign_id)
+    seen = set()
+
+    def add(segment_key, recipient):
+        segments[segment_key]["recipients"].append(recipient)
+
+    for detail in send_details:
+        email = _recipient_email(detail)
+        seen.add(email)
+        status = (detail.get("status") or "pending").lower()
+        validation_status = (detail.get("validation_status") or "").lower()
+        open_info = opens_by_email.get(email)
+        recipient = _segment_recipient(detail, open_info)
+
+        if status == "sent":
+            add("mails_sent", recipient)
+        if open_info:
+            add("opened", recipient)
+        if detail.get("replied"):
+            add("replied", recipient)
+        if status == "skipped" or validation_status in {"invalid", "risky"}:
+            add("denied_profiles", recipient)
+        if validation_status in {"", "unknown"}:
+            add("unidentified_profiles", recipient)
+        if status == "failed":
+            add("undelivered", recipient)
+        if status not in {"sent", "failed", "skipped"}:
+            add("pending", recipient)
+
+    for email, open_info in opens_by_email.items():
+        if email in seen:
+            continue
+        add("opened", _segment_recipient({"recipient": email, "status": "unknown"}, open_info))
+
+    for segment in segments.values():
+        segment["count"] = len(segment["recipients"])
+
+    return [segments[item["key"]] for item in CAMPAIGN_SEGMENT_DEFINITIONS]
+
+
+def get_campaign_segment(campaign_id, segment_key):
+    progress = _load_progress(campaign_id)
+    for segment in build_campaign_segments(campaign_id, progress):
+        if segment["key"] == segment_key:
+            return segment
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Daily stats
 # ---------------------------------------------------------------------------
@@ -1901,12 +2053,88 @@ def campaign_detail(campaign_id):
     if not brief:
         flash(f"Campaign '{campaign_id}' not found.", "error")
         return redirect(url_for("dashboard"))
+    campaign_segments = build_campaign_segments(campaign_id, progress)
     return render_template(
         "campaign_detail.html",
         brief=brief,
         progress=progress,
         campaign_id=campaign_id,
         recipients=progress.get("send_details", []),
+        campaign_segments=campaign_segments,
+    )
+
+
+@app.route("/api/campaign/<campaign_id>/segments", methods=["GET"])
+def api_campaign_segments(campaign_id):
+    brief = _load_brief(campaign_id)
+    progress = _load_progress(campaign_id)
+    if not brief:
+        return jsonify({"error": "Campaign not found"}), 404
+    return jsonify({
+        "campaign_id": campaign_id,
+        "segments": build_campaign_segments(campaign_id, progress),
+    })
+
+
+@app.route("/campaign/<campaign_id>/segments/<segment_key>/download", methods=["GET"])
+def download_campaign_segment(campaign_id, segment_key):
+    brief = _load_brief(campaign_id)
+    if not brief:
+        return jsonify({"error": "Campaign not found"}), 404
+
+    segment = get_campaign_segment(campaign_id, segment_key)
+    if not segment:
+        return jsonify({"error": "Segment not found"}), 404
+
+    columns = [
+        "campaign_id",
+        "campaign_name",
+        "segment",
+        "email",
+        "first_name",
+        "company",
+        "designation",
+        "status",
+        "validation_status",
+        "validation_result",
+        "reason",
+        "steps_completed",
+        "sent_at",
+        "replied",
+        "replied_at",
+        "open_count",
+        "last_open",
+    ]
+    output = StringIO()
+    writer = csv.DictWriter(output, fieldnames=columns)
+    writer.writeheader()
+    for recipient in segment["recipients"]:
+        writer.writerow({
+            "campaign_id": campaign_id,
+            "campaign_name": brief.get("name", campaign_id),
+            "segment": segment["label"],
+            "email": recipient.get("recipient", ""),
+            "first_name": recipient.get("first_name", ""),
+            "company": recipient.get("company", ""),
+            "designation": recipient.get("designation", ""),
+            "status": recipient.get("status", ""),
+            "validation_status": recipient.get("validation_status", ""),
+            "validation_result": recipient.get("validation_result", ""),
+            "reason": recipient.get("reason", ""),
+            "steps_completed": ", ".join(str(s) for s in recipient.get("steps_completed", [])),
+            "sent_at": recipient.get("sent_at") or "",
+            "replied": "yes" if recipient.get("replied") else "no",
+            "replied_at": recipient.get("replied_at") or "",
+            "open_count": recipient.get("open_count", 0),
+            "last_open": recipient.get("last_open") or "",
+        })
+
+    safe_campaign_id = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in campaign_id)
+    filename = f"{safe_campaign_id}_{segment_key}.csv"
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 
