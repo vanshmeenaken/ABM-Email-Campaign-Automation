@@ -131,6 +131,33 @@ class ImageGenerationTests(unittest.TestCase):
         self.assertNotEqual(image_gen.HERO_BG, middle)
         self.assertNotEqual((20, 80, 140), middle)
 
+    def test_manual_upload_is_normalized_for_the_email_slot(self):
+        source = BytesIO()
+        Image.new("RGB", (900, 500), (30, 90, 150)).save(source, "PNG")
+
+        result = image_gen.prepare_uploaded_image("dev1", source.getvalue())
+
+        with Image.open(BytesIO(result)) as output:
+            self.assertEqual(image_gen.SLOT_SIZES["dev1"], output.size)
+            self.assertEqual("JPEG", output.format)
+
+    def test_manual_upload_applies_transition_to_the_hero_only(self):
+        source = BytesIO()
+        Image.new("RGB", (900, 700), (30, 90, 150)).save(source, "PNG")
+
+        result = image_gen.prepare_uploaded_image("hero", source.getvalue())
+
+        with Image.open(BytesIO(result)) as output:
+            self.assertEqual(image_gen.SLOT_SIZES["hero"], output.size)
+            left = output.getpixel((0, output.height // 2))
+            right = output.getpixel((output.width - 1, output.height // 2))
+            self.assertTrue(all(abs(a - b) <= 5 for a, b in zip(left, image_gen.HERO_BG)))
+            self.assertTrue(all(abs(a - b) <= 5 for a, b in zip(right, (30, 90, 150))))
+
+    def test_manual_upload_rejects_invalid_files(self):
+        with self.assertRaisesRegex(image_gen.ImageGenError, "valid PNG, JPEG, or WebP"):
+            image_gen.prepare_uploaded_image("dev2", b"not an image")
+
     @patch.dict(
         os.environ,
         {

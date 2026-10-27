@@ -2255,6 +2255,21 @@ def _store_generated_images(token, results):
         )
 
 
+def _stored_image_payload(token):
+    """Return browser-ready metadata for every image currently stored for a token."""
+    version = int(datetime.now().timestamp())
+    rows = query_db(
+        "SELECT slot, placeholder FROM generated_images WHERE token = %s", (token,)
+    )
+    return {
+        row["slot"]: {
+            "url": url_for("generated_image", token=token, slot=row["slot"]) + f"?v={version}",
+            "placeholder": row["placeholder"],
+        }
+        for row in rows
+    }
+
+
 def _resolve_industry_images(form, content):
     """Return all four reviewed images; never generate inside the launch request."""
     token = (form.get("ind_image_token") or "").strip()
@@ -2306,6 +2321,42 @@ def _read_report_cover(file_storage):
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
+@app.route("/api/newsletter/industry-images/upload", methods=["POST"])
+def api_industry_image_upload():
+    """Validate, normalize, and persist newsletter images uploaded by the user."""
+    import uuid
+
+    content = industry_content(request.form)
+    problems = validate_industry_content(content)
+    if problems:
+        return jsonify({"error": " ".join(problems)}), 400
+
+    token = (request.form.get("ind_image_token") or "").strip() or uuid.uuid4().hex
+    results = {}
+    for slot in image_gen.SLOTS:
+        upload = request.files.get(f"ind_upload_{slot}")
+        if not upload or not upload.filename:
+            continue
+        try:
+            results[slot] = (image_gen.prepare_uploaded_image(slot, upload.read()), False)
+        except (ValueError, image_gen.ImageGenError) as exc:
+            return jsonify({"error": f"{slot}: {exc}"}), 400
+
+    if not results:
+        return jsonify({"error": "Choose at least one GPT-generated image to upload."}), 400
+
+    _store_generated_images(token, results)
+    images = _stored_image_payload(token)
+    missing = [slot for slot in image_gen.SLOTS if slot not in images]
+    return jsonify({
+        "token": token,
+        "status": "complete" if not missing else "partial",
+        "images": images,
+        "missing": missing,
+        "provider": "Dashboard upload",
+    })
+
+
 @app.route("/api/newsletter/industry-images", methods=["POST"])
 def api_industry_images():
     """Queue image generation and return immediately so the web request cannot time out."""
@@ -2348,23 +2399,13 @@ def api_industry_image_status(token):
     )
     if not job:
         return jsonify({"error": "Image generation job not found."}), 404
-    rows = query_db(
-        "SELECT slot, placeholder FROM generated_images WHERE token = %s", (token,)
-    )
-    version = int(datetime.now().timestamp())
     return jsonify({
         "token": token,
         "status": job["status"],
         "error": job["error"],
         "provider_ready": image_gen.provider_configured(),
         "provider": image_gen.provider_name(),
-        "images": {
-            row["slot"]: {
-                "url": url_for("generated_image", token=token, slot=row["slot"]) + f"?v={version}",
-                "placeholder": row["placeholder"],
-            }
-            for row in rows
-        },
+        "images": _stored_image_payload(token),
     })
 
 

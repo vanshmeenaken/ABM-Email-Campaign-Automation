@@ -1,8 +1,7 @@
 """Image generation for the Industry Intelligence newsletter.
 
-Newsletter copy is turned directly into an editorial-image prompt and sent to
-NVIDIA's hosted image API. There is deliberately no separate LLM prompt
-expansion call: one requested newsletter image equals one provider call.
+Newsletter copy can be sent to the optional NVIDIA API, or users can upload
+their own images through the dashboard for local normalization and storage.
 
 Environment variables:
     NVIDIA_API_KEY            NVIDIA API key (required)
@@ -240,6 +239,33 @@ def _prompt(slot, title, body, industry):
     subject = " ".join(f"{industry}. {title}. {body}".split())
     composition = HERO_HINT if slot == "hero" else "Landscape editorial composition with one clear focal subject."
     return f"Editorial subject: {subject[:2200]} {composition} {STYLE}"
+
+
+def prepare_uploaded_image(slot, raw, max_bytes=12 * 1024 * 1024):
+    """Validate and normalize a dashboard-uploaded image to its email slot."""
+    if slot not in SLOT_SIZES:
+        raise ValueError(f"Unknown image slot: {slot}")
+    if not raw:
+        raise ImageGenError("The uploaded image is empty.")
+    if len(raw) > max_bytes:
+        raise ImageGenError("The uploaded image is larger than 12 MB.")
+    try:
+        source = Image.open(BytesIO(raw))
+        if source.format not in {"PNG", "JPEG", "WEBP"}:
+            raise ImageGenError("The upload must be a PNG, JPEG, or WebP image.")
+        source.load()
+        if source.width < 200 or source.height < 120:
+            raise ImageGenError("The uploaded image is too small (minimum 200 x 120 pixels).")
+        if source.width > 8192 or source.height > 8192:
+            raise ImageGenError("The uploaded image dimensions are too large.")
+        image = _fit(source, SLOT_SIZES[slot])
+    except ImageGenError:
+        raise
+    except Exception as exc:
+        raise ImageGenError("The upload is not a valid PNG, JPEG, or WebP image.") from exc
+    if slot == "hero":
+        image = _fade_hero(image)
+    return _to_jpeg(image)
 
 
 def generate_slot(slot, title, body, industry=""):

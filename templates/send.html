@@ -183,7 +183,7 @@
         {% set ind_input = "w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" %}
         <div id="industry_builder" class="hidden space-y-6">
           <div class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-900">
-            Type the market content below. The four images (hero + three developments) are generated automatically from this content, in a minimalist, professional style. Review them, regenerate any you don't like, then launch.
+            Type the market content below and upload four images in order. The dashboard applies the hero transition to image 1, crops images 2–4 to their development slots, and prepares everything for preview and sending.
           </div>
 
           <div class="grid gap-4 md:grid-cols-3">
@@ -289,28 +289,29 @@
 
           <div class="rounded-lg border border-blue-200 bg-blue-50/40 p-4 space-y-3">
             <div class="flex items-center justify-between gap-3 flex-wrap">
-              <h4 class="text-sm font-semibold text-gray-800">Generated images</h4>
+              <h4 class="text-sm font-semibold text-gray-800">Newsletter images</h4>
               <div class="flex gap-2">
-                <button type="button" id="ind_generate_btn" onclick="generateIndustryImages()"
-                        class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm">
-                  Generate images from content
-                </button>
                 <button type="button" onclick="previewIndustryNewsletter()"
-                        class="inline-flex items-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold px-3 py-2 rounded-lg shadow-sm">
+                        class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm">
                   Preview newsletter
                 </button>
               </div>
             </div>
             <input type="hidden" name="ind_image_token" id="ind_image_token" value="" />
-            <p id="ind_image_status" class="text-xs text-gray-500">Not generated yet. Generate and review all four images before launching the campaign.</p>
+            <p id="ind_image_status" class="text-xs text-gray-500">Upload image 1 through image 4 below. PNG, JPEG, and WebP files are supported.</p>
             <div class="grid gap-3 grid-cols-2 md:grid-cols-4">
-              {% for slot, label in [("hero", "Hero"), ("dev1", "Development 1"), ("dev2", "Development 2"), ("dev3", "Development 3")] %}
+              {% for slot, label, note, ratio in [("hero", "1. Hero", "Transition · 572 × 606", "572 / 606"), ("dev1", "2. Development 1", "Cropped · 368 × 180", "368 / 180"), ("dev2", "3. Development 2", "Cropped · 368 × 180", "368 / 180"), ("dev3", "4. Development 3", "Cropped · 368 × 180", "368 / 180")] %}
               <div class="rounded-lg border border-gray-200 bg-white p-2 text-center">
-                <div class="aspect-video bg-gray-100 rounded overflow-hidden flex items-center justify-center">
+                <div class="bg-gray-100 rounded overflow-hidden flex items-center justify-center" style="aspect-ratio: {{ ratio }}">
                   <img id="ind_img_{{ slot }}" alt="" class="hidden w-full h-full object-cover" />
                   <span id="ind_ph_{{ slot }}" class="text-xs text-gray-400">{{ label }}</span>
                 </div>
-                <button type="button" onclick="generateIndustryImages(['{{ slot }}'])" class="mt-2 text-xs text-blue-700 hover:underline">Regenerate</button>
+                <p class="mt-2 text-[11px] text-gray-400">{{ note }}</p>
+                <label class="mt-2 block cursor-pointer text-xs text-blue-700 hover:underline">
+                  Upload / replace
+                  <input type="file" name="ind_upload_{{ slot }}" accept="image/png,image/jpeg,image/webp" class="hidden"
+                         onchange="uploadIndustryImages()" />
+                </label>
               </div>
               {% endfor %}
             </div>
@@ -851,9 +852,11 @@ function invalidateIndustryImages() {
     img.removeAttribute('src');
     img.classList.add('hidden');
     document.getElementById('ind_ph_' + slot).classList.remove('hidden');
+    const upload = document.querySelector('[name="ind_upload_' + slot + '"]');
+    if (upload) upload.value = '';
   });
   const status = document.getElementById('ind_image_status');
-  status.textContent = 'Image-driving copy changed. Generate the images again so they match the final content.';
+  status.textContent = 'Image-driving copy changed. Upload the four matching images again.';
   status.className = 'text-xs text-amber-700';
 }
 
@@ -873,78 +876,41 @@ async function readDashboardJson(response, label) {
   }
 }
 
-async function generateIndustryImages(slots) {
+let industryUploadInFlight = false;
+
+async function uploadIndustryImages() {
+  if (industryUploadInFlight) return;
+  industryUploadInFlight = true;
+  const uploadInputs = document.querySelectorAll('[name^="ind_upload_"]');
+  uploadInputs.forEach(input => { input.disabled = true; });
   const status = document.getElementById('ind_image_status');
-  const btn = document.getElementById('ind_generate_btn');
-  status.textContent = 'Starting NVIDIA image generation...';
+  status.textContent = 'Validating and preparing the uploaded image...';
   status.className = 'text-xs text-gray-500';
-  btn.disabled = true;
   try {
-    const extra = (slots || []).map(s => ['slots', s]);
-    const res = await fetch('/api/newsletter/industry-images', { method: 'POST', body: industryFormData(extra) });
-    let data = await readDashboardJson(res, 'The generation request');
-    if (!res.ok) throw new Error(data.error || 'Request failed');
-    const token = data.token;
-    document.getElementById('ind_image_token').value = token;
-    status.textContent = 'NVIDIA is generating the images in the background. You can keep this page open; this may take several minutes.';
-    let transientPollFailures = 0;
-    for (let attempt = 0; attempt < 400; attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      let poll;
-      let pollData;
-      try {
-        poll = await fetch('/api/newsletter/industry-images/' + encodeURIComponent(token), { cache: 'no-store' });
-        pollData = await readDashboardJson(poll, 'The image status check');
-      } catch (pollError) {
-        transientPollFailures += 1;
-        if (transientPollFailures <= 12) {
-          status.textContent = 'The dashboard connection was interrupted briefly. The image job is still running; reconnecting automatically (' + transientPollFailures + '/12)...';
-          status.className = 'text-xs text-amber-700';
-          continue;
-        }
-        throw pollError;
-      }
-      if (!poll.ok) {
-        const pollError = new Error(pollData.error || 'Could not check image status (HTTP ' + poll.status + ')');
-        if ((poll.status === 429 || poll.status >= 500) && transientPollFailures < 12) {
-          transientPollFailures += 1;
-          status.textContent = 'Render is temporarily unavailable while the NVIDIA job continues. Reconnecting automatically (' + transientPollFailures + '/12)...';
-          status.className = 'text-xs text-amber-700';
-          continue;
-        }
-        throw pollError;
-      }
-      transientPollFailures = 0;
-      data = pollData;
-      if (data.status === 'failed') throw new Error(data.error || 'NVIDIA image generation failed');
-      if (data.status === 'complete') break;
-      status.textContent = 'NVIDIA is generating the images in the background. Keep this page open; long provider queues can take several minutes.';
-      status.className = 'text-xs text-gray-500';
-      if (attempt === 399) throw new Error('Image generation is still running after 20 minutes. Try regenerating one image at a time.');
-    }
-    let anyPlaceholder = false;
+    const res = await fetch('/api/newsletter/industry-images/upload', { method: 'POST', body: industryFormData() });
+    const data = await readDashboardJson(res, 'The image upload');
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    document.getElementById('ind_image_token').value = data.token;
     Object.entries(data.images).forEach(([slot, info]) => {
       const img = document.getElementById('ind_img_' + slot);
       img.src = info.url;
       img.classList.remove('hidden');
       document.getElementById('ind_ph_' + slot).classList.add('hidden');
-      if (info.placeholder) anyPlaceholder = true;
     });
-    if (anyPlaceholder || !data.provider_ready) {
-      status.textContent = 'NVIDIA image generation is not configured, so these are placeholders. Set NVIDIA_API_KEY. Placeholders cannot be sent.';
-      status.className = 'text-xs text-red-600';
-      return false;
+    document.querySelectorAll('[name^="ind_upload_"]').forEach(input => { input.value = ''; });
+    if (data.missing.length) {
+      status.textContent = 'Image saved. Still upload: ' + data.missing.join(', ') + '.';
+      status.className = 'text-xs text-amber-700';
     } else {
-      status.textContent = 'Images ready from ' + (data.provider || 'the configured provider') + '. Regenerate any you want to change, then launch.';
+      status.textContent = 'All four images are ready. Review the newsletter preview, then launch.';
       status.className = 'text-xs text-green-700';
-      return true;
     }
   } catch (e) {
-    status.textContent = 'Could not generate images: ' + e.message;
+    status.textContent = 'Could not upload the image: ' + e.message;
     status.className = 'text-xs text-red-600';
-    return false;
   } finally {
-    btn.disabled = false;
+    industryUploadInFlight = false;
+    uploadInputs.forEach(input => { input.disabled = false; });
   }
 }
 
@@ -959,8 +925,11 @@ async function previewIndustryNewsletter() {
   win.document.write('<p style="font-family:Arial;padding:24px">Preparing newsletter preview...</p>');
   const allSlots = ['hero', 'dev1', 'dev2', 'dev3'];
   const missing = allSlots.filter(slot => document.getElementById('ind_img_' + slot).classList.contains('hidden'));
-  if (missing.length && !(await generateIndustryImages(missing))) {
+  if (missing.length) {
     win.close();
+    const status = document.getElementById('ind_image_status');
+    status.textContent = 'Upload all four images before previewing. Missing: ' + missing.join(', ') + '.';
+    status.className = 'text-xs text-red-600';
     return;
   }
   try {
