@@ -99,7 +99,7 @@
 
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-2">Step 1 Composer</label>
-          <div class="grid gap-3 md:grid-cols-2">
+          <div class="grid gap-3 md:grid-cols-3">
             <label class="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 cursor-pointer">
               <input type="radio" name="template_mode" value="custom" checked onchange="toggleTemplateMode()"
                      class="mt-1 text-blue-600 focus:ring-blue-500 border-gray-300">
@@ -114,6 +114,14 @@
               <span>
                 <span class="block text-sm font-semibold text-gray-800">KenSight Newsletter</span>
                 <span class="block text-xs text-gray-500 mt-0.5">Build the newsletter layout automatically and send it through the same campaign flow.</span>
+              </span>
+            </label>
+            <label class="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 cursor-pointer">
+              <input type="radio" name="template_mode" value="industry_intelligence" onchange="toggleTemplateMode()"
+                     class="mt-1 text-blue-600 focus:ring-blue-500 border-gray-300">
+              <span>
+                <span class="block text-sm font-semibold text-gray-800">Industry Intelligence</span>
+                <span class="block text-xs text-gray-500 mt-0.5">Hero story + top developments with AI-generated images created from your content.</span>
               </span>
             </label>
           </div>
@@ -172,6 +180,143 @@
                            focus:border-transparent shadow-sm resize-y font-mono"></textarea>
           <p class="text-xs text-gray-400 mt-1">Select text, click <strong>B</strong> bold, <strong>I</strong> italic, <u>U</u> underline, or <strong>Link</strong> to hyperlink it (e.g. "book a discovery call").</p>
         </div>
+        {% set ind_input = "w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm" %}
+        <div id="industry_builder" class="hidden space-y-6">
+          <div class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-900">
+            Type the market content below. The four images (hero + three developments) are generated automatically from this content, in a minimalist, professional style. Review them, regenerate any you don't like, then launch.
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-3">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Section label</label>
+              <input name="ind_section_label" type="text" value="Industry Intelligence" class="{{ ind_input }}" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Issue label</label>
+              <input name="ind_issue_label" type="text" value="Oct 2026 | Issue 01" class="{{ ind_input }}" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Industry <span class="text-gray-400 font-normal">(guides the images)</span></label>
+              <input name="ind_industry" type="text" value="Automotive" class="{{ ind_input }}" />
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Hero story</h4>
+            <div class="grid gap-3 md:grid-cols-2">
+              <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Kicker</label>
+                <input name="ind_hero_kicker" type="text" value="Key updates across sectors" class="{{ ind_input }}" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">Button text</label>
+                <input name="ind_hero_cta_text" type="text" value="Read the Full Perspective" class="{{ ind_input }}" />
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Headline <span class="text-red-500">*</span></label>
+              <textarea name="ind_hero_title" rows="2" class="{{ ind_input }} resize-y">Saudi Arabia's Automotive Market Is Changing. Who Will Capture the Next Wave of Growth?</textarea>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Summary <span class="text-red-500">*</span></label>
+              <textarea name="ind_hero_body" rows="4" class="{{ ind_input }} resize-y">Vision 2030, local manufacturing ambitions and changing consumer expectations are reshaping automotive competition. But the opportunity is increasingly tied to how well companies adapt their portfolios, distribution networks and operating models.</textarea>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Button link</label>
+              <input name="ind_hero_cta_url" type="url" value="https://www.kenresearch.com" class="{{ ind_input }}" />
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-4">
+            <div>
+              <label class="block text-sm font-semibold text-gray-800 mb-1">Section heading</label>
+              <input name="ind_list_heading" type="text" value="Top Developments in Automotive" class="{{ ind_input }}" />
+            </div>
+            {% set devs = [
+              ("Consumer Intelligence · India", "29% Consider EVs. Why Do 71% Still Prefer Conventional Cars?", "A 5,000-buyer study reveals how charging confidence, upfront costs and resale concerns continue to influence purchase decisions."),
+              ("EV Market Shift · India", "Passenger EV Registrations Jumped as Fuel Volatility Changed Purchase Economics", "Monthly EV registrations rose from roughly 16,000 in January–February to 24,000 across March–May 2026. What made buyers act sooner?"),
+              ("Market Signal · Saudi Arabia", "857,247 New Vehicles Sold. Is Competitive Pressure Intensifying?", "Saudi Arabia recorded 857,247 light-vehicle sales in 2025. With EVs gaining a foothold and established players facing pressure, competitive positioning deserves closer examination.")
+            ] %}
+            {% for tag, title, body in devs %}
+            {% set n = loop.index %}
+            <div class="rounded-lg bg-gray-50 p-3 space-y-2">
+              <div class="text-xs font-semibold text-gray-600">Development {{ n }}</div>
+              <div class="grid gap-2 md:grid-cols-2">
+                <input name="ind_dev{{ n }}_tag" type="text" value="{{ tag }}" placeholder="Tag, e.g. Market Signal · Saudi Arabia" class="{{ ind_input }}" />
+                <input name="ind_dev{{ n }}_url" type="url" value="https://www.kenresearch.com" placeholder="Link" class="{{ ind_input }}" />
+              </div>
+              <textarea name="ind_dev{{ n }}_title" rows="2" placeholder="Headline *" class="{{ ind_input }} resize-y">{{ title }}</textarea>
+              <textarea name="ind_dev{{ n }}_body" rows="3" placeholder="Summary *" class="{{ ind_input }} resize-y">{{ body }}</textarea>
+            </div>
+            {% endfor %}
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Source note <span class="text-gray-400">(optional)</span></label>
+              <input name="ind_source_note" type="text" value="Source material: September 2026 Saudi Arabia New Car Market publication." class="{{ ind_input }}" />
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Featured deep-dive report <span class="text-gray-400 font-normal">(leave the title empty to hide this block)</span></h4>
+            <div class="grid gap-3 md:grid-cols-2">
+              <input name="ind_report_label" type="text" value="Featured deep-dive report" class="{{ ind_input }}" />
+              <input name="ind_report_title" type="text" value="KSA Automotive Market Outlook to 2030" placeholder="Report title" class="{{ ind_input }}" />
+            </div>
+            <textarea name="ind_report_body" rows="3" class="{{ ind_input }} resize-y">How do changing customer segments, competitive positioning, regional demand and long-term industry developments affect your automotive strategy?</textarea>
+            <textarea name="ind_report_supporting" rows="2" class="{{ ind_input }} resize-y">Explore the comprehensive market analysis for deeper context in the Kingdom's automotive landscape.</textarea>
+            <div class="grid gap-3 md:grid-cols-2">
+              <input name="ind_report_cta_text" type="text" value="Explore the Full Market Report" class="{{ ind_input }}" />
+              <input name="ind_report_cta_url" type="url" value="https://www.kenresearch.com" class="{{ ind_input }}" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Report cover image <span class="text-gray-400">(recommended; a branded fallback is shown otherwise)</span></label>
+              <input type="file" name="ind_report_cover" accept="image/*"
+                     class="block w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Footer links</h4>
+            <div class="grid gap-3 md:grid-cols-3">
+              <input name="ind_contact_url" type="url" value="https://www.kenresearch.com/contact-us" placeholder="Contact Us link" class="{{ ind_input }}" />
+              <input name="ind_preferences_url" type="url" value="https://www.kenresearch.com" placeholder="Manage Preferences link" class="{{ ind_input }}" />
+              <input name="ind_unsubscribe_url" type="url" value="https://www.kenresearch.com" placeholder="Unsubscribe link" class="{{ ind_input }}" />
+              <input name="ind_social_linkedin" type="url" value="https://www.linkedin.com/company/ken-research" class="{{ ind_input }}" />
+              <input name="ind_social_x" type="url" value="https://x.com/kenresearch" class="{{ ind_input }}" />
+              <input name="ind_social_youtube" type="url" value="https://www.youtube.com/@kenresearch" class="{{ ind_input }}" />
+            </div>
+            <p class="text-xs text-gray-400">The Ken Research logo and social icons are built in. Enter the campaign's real preference and unsubscribe URLs before launch.</p>
+          </div>
+
+          <div class="rounded-lg border border-blue-200 bg-blue-50/40 p-4 space-y-3">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <h4 class="text-sm font-semibold text-gray-800">Generated images</h4>
+              <div class="flex gap-2">
+                <button type="button" id="ind_generate_btn" onclick="generateIndustryImages()"
+                        class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm">
+                  Generate images from content
+                </button>
+                <button type="button" onclick="previewIndustryNewsletter()"
+                        class="inline-flex items-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-semibold px-3 py-2 rounded-lg shadow-sm">
+                  Preview newsletter
+                </button>
+              </div>
+            </div>
+            <input type="hidden" name="ind_image_token" id="ind_image_token" value="" />
+            <p id="ind_image_status" class="text-xs text-gray-500">Not generated yet. Generate and review all four images before launching the campaign.</p>
+            <div class="grid gap-3 grid-cols-2 md:grid-cols-4">
+              {% for slot, label in [("hero", "Hero"), ("dev1", "Development 1"), ("dev2", "Development 2"), ("dev3", "Development 3")] %}
+              <div class="rounded-lg border border-gray-200 bg-white p-2 text-center">
+                <div class="aspect-video bg-gray-100 rounded overflow-hidden flex items-center justify-center">
+                  <img id="ind_img_{{ slot }}" alt="" class="hidden w-full h-full object-cover" />
+                  <span id="ind_ph_{{ slot }}" class="text-xs text-gray-400">{{ label }}</span>
+                </div>
+                <button type="button" onclick="generateIndustryImages(['{{ slot }}'])" class="mt-2 text-xs text-blue-700 hover:underline">Regenerate</button>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
         <div id="newsletter_builder" class="hidden space-y-5">
           <div class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-900">
             This mode auto-builds Step 1 into a newsletter-style email. Your existing send engine, recipient parsing, tracking, and follow-up steps stay unchanged.
@@ -677,7 +822,122 @@ function toggleTemplateMode() {
 
   custom.classList.toggle('hidden', mode !== 'custom');
   newsletter.classList.toggle('hidden', mode !== 'kensight_newsletter');
+  document.getElementById('industry_builder').classList.toggle('hidden', mode !== 'industry_intelligence');
+  // The Industry Intelligence subject defaults to the hero headline when left empty.
+  const subject = document.querySelector('input[name="subject_1"]');
+  if (subject) subject.required = mode !== 'industry_intelligence';
   toggleNewsletterTemplate();
+}
+
+function industryFormData(extra) {
+  const fd = new FormData();
+  document.querySelectorAll('#industry_builder [name]').forEach(el => {
+    if (el.type === 'file') {
+      if (el.files.length) fd.append(el.name, el.files[0]);
+    } else {
+      fd.append(el.name, el.value);
+    }
+  });
+  (extra || []).forEach(([k, v]) => fd.append(k, v));
+  return fd;
+}
+
+function invalidateIndustryImages() {
+  const token = document.getElementById('ind_image_token');
+  if (!token || !token.value) return;
+  token.value = '';
+  ['hero', 'dev1', 'dev2', 'dev3'].forEach(slot => {
+    const img = document.getElementById('ind_img_' + slot);
+    img.removeAttribute('src');
+    img.classList.add('hidden');
+    document.getElementById('ind_ph_' + slot).classList.remove('hidden');
+  });
+  const status = document.getElementById('ind_image_status');
+  status.textContent = 'Image-driving copy changed. Generate the images again so they match the final content.';
+  status.className = 'text-xs text-amber-700';
+}
+
+async function generateIndustryImages(slots) {
+  const status = document.getElementById('ind_image_status');
+  const btn = document.getElementById('ind_generate_btn');
+  status.textContent = 'Starting NVIDIA image generation...';
+  status.className = 'text-xs text-gray-500';
+  btn.disabled = true;
+  try {
+    const extra = (slots || []).map(s => ['slots', s]);
+    const res = await fetch('/api/newsletter/industry-images', { method: 'POST', body: industryFormData(extra) });
+    let data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+    const token = data.token;
+    document.getElementById('ind_image_token').value = token;
+    status.textContent = 'NVIDIA is generating the images in the background. You can keep this page open; this may take several minutes.';
+    for (let attempt = 0; attempt < 200; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      const poll = await fetch('/api/newsletter/industry-images/' + encodeURIComponent(token), { cache: 'no-store' });
+      data = await poll.json();
+      if (!poll.ok) throw new Error(data.error || 'Could not check image status');
+      if (data.status === 'failed') throw new Error(data.error || 'NVIDIA image generation failed');
+      if (data.status === 'complete') break;
+      if (attempt === 199) throw new Error('Image generation is still running. Refresh the page and try again later.');
+    }
+    let anyPlaceholder = false;
+    Object.entries(data.images).forEach(([slot, info]) => {
+      const img = document.getElementById('ind_img_' + slot);
+      img.src = info.url;
+      img.classList.remove('hidden');
+      document.getElementById('ind_ph_' + slot).classList.add('hidden');
+      if (info.placeholder) anyPlaceholder = true;
+    });
+    if (anyPlaceholder || !data.provider_ready) {
+      status.textContent = 'NVIDIA image generation is not configured, so these are placeholders. Set NVIDIA_API_KEY. Placeholders cannot be sent.';
+      status.className = 'text-xs text-red-600';
+      return false;
+    } else {
+      status.textContent = 'Images ready from ' + (data.provider || 'the configured provider') + '. Regenerate any you want to change, then launch.';
+      status.className = 'text-xs text-green-700';
+      return true;
+    }
+  } catch (e) {
+    status.textContent = 'Could not generate images: ' + e.message;
+    status.className = 'text-xs text-red-600';
+    return false;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function previewIndustryNewsletter() {
+  const win = window.open('', '_blank');
+  if (!win) {
+    const status = document.getElementById('ind_image_status');
+    status.textContent = 'Allow pop-ups for this dashboard to open the newsletter preview.';
+    status.className = 'text-xs text-red-600';
+    return;
+  }
+  win.document.write('<p style="font-family:Arial;padding:24px">Preparing newsletter preview...</p>');
+  const allSlots = ['hero', 'dev1', 'dev2', 'dev3'];
+  const missing = allSlots.filter(slot => document.getElementById('ind_img_' + slot).classList.contains('hidden'));
+  if (missing.length && !(await generateIndustryImages(missing))) {
+    win.close();
+    return;
+  }
+  try {
+    const res = await fetch('/newsletter/industry-preview', { method: 'POST', body: industryFormData() });
+    const html = await res.text();
+    if (!res.ok) {
+      let message = 'Could not open the newsletter preview.';
+      try { message = JSON.parse(html).error || message; } catch (_) {}
+      throw new Error(message);
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  } catch (e) {
+    if (win) win.close();
+    const status = document.getElementById('ind_image_status');
+    status.textContent = e.message;
+    status.className = 'text-xs text-red-600';
+  }
 }
 
 function toggleNewsletterTemplate() {
@@ -824,6 +1084,15 @@ function toggleStep(num) {
 document.addEventListener('DOMContentLoaded', function() {
   attachNewsletterFormattingToolbars();
   toggleTemplateMode();
+  [
+    'ind_industry', 'ind_hero_title', 'ind_hero_body',
+    'ind_dev1_title', 'ind_dev1_body',
+    'ind_dev2_title', 'ind_dev2_body',
+    'ind_dev3_title', 'ind_dev3_body'
+  ].forEach(name => {
+    const field = document.querySelector('[name="' + name + '"]');
+    if (field) field.addEventListener('input', invalidateIndustryImages);
+  });
 });
 </script>
 

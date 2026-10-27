@@ -32,6 +32,9 @@ Thumbs.db
 # Campaign data (user data, stays local)
 campaigns/
 
+# Locally generated newsletter previews
+assets/newsletter/generated-preview/
+
 # Claude / internal tools
 .claude/
 graphify-out/

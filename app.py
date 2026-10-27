@@ -22,6 +22,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from send_email import send_email
+import image_gen
+from newsletter_industry import (
+    IMAGE_FILES as INDUSTRY_IMAGE_FILES,
+    image_specs as industry_image_specs,
+    industry_content,
+    render_industry_newsletter,
+    validate_industry_content,
+)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY")
@@ -44,6 +52,11 @@ NEWSLETTER_ASSET_FILES = {
     "mailmodo-youtube.png",
     "mailmodo-website.png",
     "mailmodo-footer-logo.png",
+    "ken-research-logo.png",
+    "ken-research-logo-color.png",
+    "industry-arrow.png",
+    "industry-report-icon.png",
+    "industry-report-cover-default.png",
 }
 NEWSLETTER_INLINE_ASSET_FILES = (
     "mailmodo-hero-banner.jpg",
@@ -53,6 +66,11 @@ NEWSLETTER_INLINE_ASSET_FILES = (
     "mailmodo-youtube.png",
     "mailmodo-website.png",
     "mailmodo-footer-logo.png",
+    "ken-research-logo.png",
+    "ken-research-logo-color.png",
+    "industry-arrow.png",
+    "industry-report-icon.png",
+    "industry-report-cover-default.png",
 )
 
 # 1x1 transparent PNG pixel
@@ -787,6 +805,19 @@ def apply_attachments(body, attachments):
     image_files = [a for a in attachments if a["content_type"].startswith("image/")]
     other_files = [a for a in attachments if not a["content_type"].startswith("image/")]
 
+    # Images the template already references by name (cid:<filename>) are attached as-is
+    named_images = [a for a in image_files if f"cid:{a['filename']}" in body]
+    image_files = [a for a in image_files if a not in named_images]
+    for att in named_images:
+        graph_attachments.append({
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": att["filename"],
+            "contentType": att["content_type"],
+            "contentBytes": att["content_b64"],
+            "contentId": att["filename"],
+            "isInline": True,
+        })
+
     img_markers = ["{image}", "[image]", "{Image}", "[Image]"]
     file_markers = ["{file}", "[file]", "{File}", "[File]", "{attachment}", "[attachment]"]
 
@@ -1247,6 +1278,27 @@ def init_db():
                 content_type TEXT,
                 content_b64 TEXT,
                 created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS generated_images (
+                token TEXT,
+                slot TEXT,
+                content_type TEXT,
+                data_b64 TEXT,
+                placeholder BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (token, slot)
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS generated_image_jobs (
+                token TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                requested_slots JSONB NOT NULL DEFAULT '[]',
+                error TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
         conn.commit()
@@ -1748,6 +1800,7 @@ def send_submit():
             return redirect(url_for("send_form"))
 
     sequences = []
+    industry_attachments = []
     subject_1 = request.form.get("subject_1", "").strip() or "Ken Research Outreach"
     if template_mode == "kensight_newsletter":
         newsletter_template = request.form.get("newsletter_template", "overview").strip() or "overview"
@@ -1755,6 +1808,26 @@ def send_submit():
             body_1 = render_kensight_pov_newsletter(request.form, "cid")
         else:
             body_1 = render_kensight_newsletter(request.form, "cid")
+    elif template_mode == "industry_intelligence":
+        content = industry_content(request.form)
+        problems = validate_industry_content(content)
+        if problems:
+            flash(" ".join(problems), "error")
+            return redirect(url_for("send_form"))
+        try:
+            image_b64 = _resolve_industry_images(request.form, content)
+            cover_b64 = _read_report_cover(request.files.get("ind_report_cover"))
+        except Exception as e:
+            flash(f"Could not prepare the newsletter images: {e}", "error")
+            return redirect(url_for("send_form"))
+        industry_attachments = [(INDUSTRY_IMAGE_FILES[slot], b64) for slot, b64 in image_b64.items()]
+        image_src = {slot: f"cid:{INDUSTRY_IMAGE_FILES[slot]}" for slot in image_b64}
+        if cover_b64:
+            industry_attachments.append((INDUSTRY_IMAGE_FILES["report"], cover_b64))
+            image_src["report"] = f"cid:{INDUSTRY_IMAGE_FILES['report']}"
+        body_1 = render_industry_newsletter(request.form, "cid", image_src, has_report_cover=bool(cover_b64))
+        if not request.form.get("subject_1", "").strip():
+            subject_1 = content["hero_title"]
     else:
         body_1 = request.form.get("body_1", "").strip() or (
             f"<p>This is an outreach email from Ken Research.</p>"
@@ -1801,6 +1874,12 @@ def send_submit():
                 except Exception as e:
                     print(f"[ATTACH] Warning: could not save {f.filename}: {e}")
 
+    for filename, b64 in industry_attachments:
+        try:
+            save_attachment(campaign_id, 1, filename, "image/jpeg", b64)
+        except Exception as e:
+            print(f"[ATTACH] Warning: could not save {filename}: {e}")
+
     n_steps = len(sequences)
     campaign_label = request.form.get("campaign_name", "").strip() or sequences[0]["subject"]
 
@@ -1839,6 +1918,179 @@ def newsletter_asset(filename):
     if filename not in NEWSLETTER_ASSET_FILES:
         return jsonify({"error": "Asset not found"}), 404
     return send_from_directory(NEWSLETTER_ASSETS_DIR, filename)
+
+
+# ---------------------------------------------------------------------------
+# Industry Intelligence newsletter: generated images, preview
+# ---------------------------------------------------------------------------
+
+def _store_generated_images(token, results):
+    for slot, (data, placeholder) in results.items():
+        execute_db(
+            """INSERT INTO generated_images (token, slot, content_type, data_b64, placeholder)
+               VALUES (%s, %s, 'image/jpeg', %s, %s)
+               ON CONFLICT (token, slot) DO UPDATE
+               SET data_b64 = EXCLUDED.data_b64, placeholder = EXCLUDED.placeholder, created_at = NOW()""",
+            (token, slot, base64.b64encode(data).decode("utf-8"), placeholder),
+        )
+
+
+def _resolve_industry_images(form, content):
+    """Return all four reviewed images; never generate inside the launch request."""
+    token = (form.get("ind_image_token") or "").strip()
+    if not token:
+        raise RuntimeError("generate and review all four images in the dashboard before launch.")
+    rows = query_db("SELECT slot, data_b64, placeholder FROM generated_images WHERE token = %s", (token,))
+    have = {r["slot"]: r for r in rows}
+    missing = [slot for slot in image_gen.SLOTS if slot not in have]
+    if missing:
+        raise RuntimeError(
+            "generate and review all four images before launch. "
+            f"Missing: {', '.join(missing)}."
+        )
+    if any(have[slot]["placeholder"] for slot in image_gen.SLOTS):
+        raise RuntimeError(
+            "image generation is not configured (set NVIDIA_API_KEY). "
+            "Placeholder images are never sent."
+        )
+    return {slot: have[slot]["data_b64"] for slot in image_gen.SLOTS}
+
+
+def _generate_industry_images_job(token, specs, industry, slots):
+    """Run slow NVIDIA generation outside the web request, then persist the result."""
+    try:
+        results = image_gen.generate_images(specs, industry, slots)
+        if any(placeholder for _, placeholder in results.values()):
+            raise RuntimeError("NVIDIA image generation is not configured. Set NVIDIA_API_KEY.")
+        _store_generated_images(token, results)
+        execute_db(
+            "UPDATE generated_image_jobs SET status = 'complete', error = NULL, updated_at = NOW() WHERE token = %s",
+            (token,),
+        )
+    except Exception as exc:
+        execute_db(
+            "UPDATE generated_image_jobs SET status = 'failed', error = %s, updated_at = NOW() WHERE token = %s",
+            (str(exc)[:1000], token),
+        )
+
+
+def _read_report_cover(file_storage):
+    """Convert an optional uploaded report cover to a web-sized JPEG (base64)."""
+    if not file_storage or not file_storage.filename:
+        return None
+    from PIL import Image
+    img = Image.open(file_storage.stream).convert("RGB")
+    img.thumbnail((440, 600))
+    buf = BytesIO()
+    img.save(buf, "JPEG", quality=88)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
+@app.route("/api/newsletter/industry-images", methods=["POST"])
+def api_industry_images():
+    """Queue image generation and return immediately so the web request cannot time out."""
+    import uuid
+    content = industry_content(request.form)
+    problems = validate_industry_content(content)
+    if problems:
+        return jsonify({"error": " ".join(problems)}), 400
+    token = (request.form.get("ind_image_token") or "").strip() or uuid.uuid4().hex
+    slots = [s for s in request.form.getlist("slots") if s in image_gen.SLOTS] or None
+    slots = list(slots or image_gen.SLOTS)
+    if not image_gen.provider_configured():
+        return jsonify({"error": "NVIDIA image generation is not configured. Set NVIDIA_API_KEY."}), 503
+    execute_db(
+        """INSERT INTO generated_image_jobs (token, status, requested_slots, error)
+           VALUES (%s, 'processing', %s::jsonb, NULL)
+           ON CONFLICT (token) DO UPDATE
+           SET status = 'processing', requested_slots = EXCLUDED.requested_slots,
+               error = NULL, updated_at = NOW()""",
+        (token, json.dumps(slots)),
+    )
+    threading.Thread(
+        target=_generate_industry_images_job,
+        args=(token, industry_image_specs(content), content["industry"], slots),
+        daemon=True,
+    ).start()
+    return jsonify({
+        "token": token,
+        "provider_ready": image_gen.provider_configured(),
+        "provider": image_gen.provider_name(),
+        "status": "processing",
+    }), 202
+
+
+@app.route("/api/newsletter/industry-images/<token>", methods=["GET"])
+def api_industry_image_status(token):
+    job = query_db(
+        "SELECT status, error, requested_slots FROM generated_image_jobs WHERE token = %s",
+        (token,), one=True,
+    )
+    if not job:
+        return jsonify({"error": "Image generation job not found."}), 404
+    rows = query_db(
+        "SELECT slot, placeholder FROM generated_images WHERE token = %s", (token,)
+    )
+    version = int(datetime.now().timestamp())
+    return jsonify({
+        "token": token,
+        "status": job["status"],
+        "error": job["error"],
+        "provider_ready": image_gen.provider_configured(),
+        "provider": image_gen.provider_name(),
+        "images": {
+            row["slot"]: {
+                "url": url_for("generated_image", token=token, slot=row["slot"]) + f"?v={version}",
+                "placeholder": row["placeholder"],
+            }
+            for row in rows
+        },
+    })
+
+
+@app.route("/generated/<token>/<slot>", methods=["GET"])
+def generated_image(token, slot):
+    row = query_db(
+        "SELECT content_type, data_b64 FROM generated_images WHERE token = %s AND slot = %s",
+        (token, slot), one=True,
+    )
+    if not row:
+        return jsonify({"error": "Image not found"}), 404
+    return Response(base64.b64decode(row["data_b64"]), mimetype=row["content_type"],
+                    headers={"Cache-Control": "private, max-age=3600"})
+
+
+@app.route("/newsletter/industry-preview", methods=["POST"])
+def industry_preview():
+    """Render the newsletter exactly as it will be sent, using the generated images."""
+    content = industry_content(request.form)
+    problems = validate_industry_content(content)
+    if problems:
+        return jsonify({"error": " ".join(problems)}), 400
+    token = (request.form.get("ind_image_token") or "").strip()
+    image_src = {}
+    if token:
+        for row in query_db(
+            "SELECT slot FROM generated_images WHERE token = %s AND placeholder = FALSE", (token,)
+        ):
+            image_src[row["slot"]] = url_for("generated_image", token=token, slot=row["slot"], _external=True)
+    missing = [slot for slot in image_gen.SLOTS if slot not in image_src]
+    if missing:
+        return jsonify({
+            "error": "Generate all four newsletter images before opening the preview. "
+                     f"Missing: {', '.join(missing)}."
+        }), 400
+    cover_b64 = _read_report_cover(request.files.get("ind_report_cover"))
+    if cover_b64:
+        image_src["report"] = f"data:image/jpeg;base64,{cover_b64}"
+    html = render_industry_newsletter(
+        request.form, request.host_url.rstrip("/"), image_src, has_report_cover=bool(cover_b64)
+    )
+    return Response(
+        f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>Newsletter preview</title></head><body style="margin:0">{html}</body></html>',
+        mimetype="text/html",
+    )
 
 
 @app.route("/track/pixel", methods=["GET"])
