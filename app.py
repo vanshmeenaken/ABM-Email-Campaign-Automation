@@ -16,7 +16,7 @@ from io import BytesIO, StringIO
 
 import psycopg2
 import psycopg2.extras
-from flask import Flask, request, send_file, send_from_directory, render_template, redirect, url_for, jsonify, flash, Response
+from flask import Flask, request, send_file, send_from_directory, render_template, redirect, url_for, jsonify, flash, Response, has_request_context, make_response
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -30,12 +30,20 @@ from newsletter_industry import (
     render_industry_newsletter,
     validate_industry_content,
 )
+from unsubscribe import (
+    InvalidUnsubscribeToken,
+    create_unsubscribe_token,
+    masked_email,
+    normalize_email,
+    read_unsubscribe_token,
+)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 BOUNCIFY_API_KEY = os.getenv("BOUNCIFY_API_KEY", "")
+UNSUBSCRIBE_URL_PLACEHOLDER = "https://unsubscribe.invalid/recipient"
 NEWSLETTER_ASSETS_DIR = os.path.join(app.root_path, "assets", "newsletter")
 NEWSLETTER_ASSET_FILES = {
     "kensight-newsletter-hero.svg",
@@ -1029,7 +1037,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                 }
                 skipped_emails = {
                     d["recipient"] for d in prog["send_details"]
-                    if d.get("status") == "skipped"
+                    if d.get("status") == "skipped" or d.get("unsubscribed")
                 }
             except Exception:
                 already_sent, failed_emails, replied_emails, skipped_emails = set(), set(), set(), set()
@@ -1064,6 +1072,13 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                 company = rec.get("company", "")
                 designation = rec.get("designation", "")
                 try:
+                    # Global suppression is checked immediately before every individual send.
+                    # This protects queued campaigns, follow-ups, retries and resumed runs.
+                    if is_unsubscribed(email):
+                        tag_campaign_recipient_unsubscribed(campaign_id, email)
+                        print(f"[UNSUBSCRIBED] {email} suppressed for {campaign_id} Step {step_num}")
+                        continue
+
                     # Validate on Step 1 only (uses Bouncify credit once per email)
                     # Skip validation for internal/trusted domains (they reject verification pings)
                     _email_domain = email.split("@")[-1].lower() if "@" in email else ""
@@ -1099,10 +1114,16 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
 
                     if sends_attempted > 0:
                         time.sleep(random.uniform(240, 300))  # 4-5 min anti-spam gap
+                    if is_unsubscribed(email):
+                        tag_campaign_recipient_unsubscribed(campaign_id, email)
+                        print(f"[UNSUBSCRIBED] {email} suppressed after send delay for {campaign_id}")
+                        continue
                     sends_attempted += 1
 
                     p_subject = personalize(subject, first_name, company, designation)
                     p_body = plain_to_html(personalize(body, first_name, company, designation))
+                    unsubscribe_url = build_unsubscribe_url(email, campaign_id, tracker_url)
+                    p_body = p_body.replace(UNSUBSCRIBE_URL_PLACEHOLDER, unsubscribe_url)
                     graph_atts = newsletter_inline_attachments(p_body)
 
                     # Apply attachments — replace markers in body, build graph list
@@ -1119,6 +1140,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                         step=step_num,
                         tracker_url=tracker_url,
                         attachments=graph_atts if graph_atts else None,
+                        unsubscribe_url=unsubscribe_url,
                     )
 
                     try:
@@ -1185,6 +1207,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
 
 def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, sequences):
     """Create campaign record in Supabase."""
+    unsubscribed = get_unsubscribed_map([recipient["email"] for recipient in recipients])
     brief = {
         "campaign_id": campaign_id,
         "name": campaign_name,
@@ -1205,7 +1228,7 @@ def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, se
         "next_step_send_at": None,
         "step_completed_at": {},
         "sent": 0,
-        "pending": len(recipients),
+        "pending": len(recipients) - len(unsubscribed),
         "failed": 0,
         "last_update": datetime.now().isoformat(),
         "send_details": [
@@ -1216,9 +1239,16 @@ def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, se
                 "designation": r.get("designation", ""),
                 "step": 0,
                 "steps_completed": [],
-                "status": "pending",
+                "status": "unsubscribed" if normalize_email(r["email"]) in unsubscribed else "pending",
                 "sent_at": None,
                 "retry_count": 0,
+                "unsubscribed": normalize_email(r["email"]) in unsubscribed,
+                "unsubscribed_at": (
+                    unsubscribed[normalize_email(r["email"])].get("unsubscribed_at").isoformat()
+                    if normalize_email(r["email"]) in unsubscribed
+                    and unsubscribed[normalize_email(r["email"])].get("unsubscribed_at")
+                    else None
+                ),
             }
             for r in recipients
         ],
@@ -1301,6 +1331,32 @@ def init_db():
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS subscriber_preferences (
+                email TEXT PRIMARY KEY,
+                is_unsubscribed BOOLEAN NOT NULL DEFAULT TRUE,
+                scope TEXT NOT NULL DEFAULT 'all_newsletters',
+                source_campaign_id TEXT,
+                unsubscribed_at TIMESTAMPTZ,
+                resubscribed_at TIMESTAMPTZ,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS subscription_events (
+                id BIGSERIAL PRIMARY KEY,
+                email TEXT NOT NULL,
+                action TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT 'all_newsletters',
+                campaign_id TEXT,
+                source TEXT NOT NULL DEFAULT 'preference_page',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                user_agent TEXT,
+                ip_address TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_subscription_events_email ON subscription_events (email)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_subscription_events_campaign ON subscription_events (campaign_id)")
         conn.commit()
     finally:
         conn.close()
@@ -1328,6 +1384,133 @@ def execute_db(sql, params=()):
 
 
 # ---------------------------------------------------------------------------
+# Subscription preferences
+# ---------------------------------------------------------------------------
+
+def get_unsubscribe_base_url(fallback=""):
+    """Return the public HTTPS origin used in recipient preference links."""
+    candidates = (
+        os.getenv("UNSUBSCRIBE_BASE_URL", ""),
+        os.getenv("RENDER_EXTERNAL_URL", ""),
+        os.getenv("TRACKER_URL", ""),
+        fallback,
+    )
+    for candidate in candidates:
+        candidate = (candidate or "").strip().rstrip("/")
+        if candidate.lower().startswith("https://"):
+            return candidate
+    return ""
+
+
+def build_unsubscribe_url(email, campaign_id="", fallback_base=""):
+    base = get_unsubscribe_base_url(fallback_base)
+    if not base:
+        raise RuntimeError(
+            "A public HTTPS unsubscribe URL is required. Set UNSUBSCRIBE_BASE_URL or RENDER_EXTERNAL_URL."
+        )
+    token = create_unsubscribe_token(email, campaign_id=campaign_id)
+    return f"{base}/unsubscribe/{token}"
+
+
+def get_unsubscribed_map(emails=None):
+    params = ()
+    where = "WHERE is_unsubscribed = TRUE"
+    normalized = sorted({normalize_email(email) for email in (emails or []) if normalize_email(email)})
+    if emails is not None:
+        if not normalized:
+            return {}
+        where += " AND email = ANY(%s)"
+        params = (normalized,)
+    rows = query_db(
+        f"""SELECT email, scope, source_campaign_id, unsubscribed_at, updated_at
+            FROM subscriber_preferences {where}
+            ORDER BY updated_at DESC""",
+        params,
+    )
+    return {normalize_email(row["email"]): dict(row) for row in rows}
+
+
+def is_unsubscribed(email):
+    normalized = normalize_email(email)
+    if not normalized:
+        return False
+    row = query_db(
+        "SELECT is_unsubscribed FROM subscriber_preferences WHERE email = %s",
+        (normalized,),
+        one=True,
+    )
+    return bool(row and row["is_unsubscribed"])
+
+
+def set_subscription_preference(email, unsubscribed, campaign_id="", scope="all_newsletters", source="preference_page"):
+    normalized = normalize_email(email)
+    if not normalized:
+        raise ValueError("A recipient email is required.")
+    conn = get_db_conn()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO subscriber_preferences
+                   (email, is_unsubscribed, scope, source_campaign_id, unsubscribed_at, resubscribed_at, updated_at)
+               VALUES (%s, %s, %s, %s,
+                       CASE WHEN %s THEN NOW() ELSE NULL END,
+                       CASE WHEN %s THEN NULL ELSE NOW() END,
+                       NOW())
+               ON CONFLICT (email) DO UPDATE SET
+                   is_unsubscribed = EXCLUDED.is_unsubscribed,
+                   scope = EXCLUDED.scope,
+                   source_campaign_id = EXCLUDED.source_campaign_id,
+                   unsubscribed_at = CASE WHEN EXCLUDED.is_unsubscribed THEN NOW()
+                                          ELSE subscriber_preferences.unsubscribed_at END,
+                   resubscribed_at = CASE WHEN EXCLUDED.is_unsubscribed THEN subscriber_preferences.resubscribed_at
+                                          ELSE NOW() END,
+                   updated_at = NOW()""",
+            (normalized, bool(unsubscribed), scope, campaign_id or None, bool(unsubscribed), bool(unsubscribed)),
+        )
+        cursor.execute(
+            """INSERT INTO subscription_events
+                   (email, action, scope, campaign_id, source, user_agent, ip_address)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (
+                normalized,
+                "unsubscribed" if unsubscribed else "resubscribed",
+                scope,
+                campaign_id or None,
+                source,
+                request.headers.get("User-Agent", "")[:500] if has_request_context() else "",
+                (request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()[:64]
+                 if has_request_context() else ""),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def tag_campaign_recipient_unsubscribed(campaign_id, email):
+    """Add a visible preference tag without overwriting delivery history."""
+    if not campaign_id:
+        return
+    try:
+        progress = _load_progress(campaign_id)
+        changed = False
+        for detail in progress.get("send_details", []):
+            if _recipient_email(detail) == normalize_email(email):
+                was_pending = detail.get("status", "pending") not in {"sent", "failed", "skipped", "unsubscribed"}
+                detail["unsubscribed"] = True
+                detail["unsubscribed_at"] = datetime.now().isoformat()
+                if was_pending:
+                    detail["status"] = "unsubscribed"
+                    progress["pending"] = max(0, progress.get("pending", 0) - 1)
+                changed = True
+        if changed:
+            progress["last_update"] = datetime.now().isoformat()
+            _save_progress(campaign_id, progress)
+    except Exception as exc:
+        print(f"[UNSUBSCRIBE TAG] Could not update {campaign_id}: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Dashboard helpers
 # ---------------------------------------------------------------------------
 
@@ -1351,6 +1534,7 @@ def get_dashboard_stats():
         FROM campaigns
         ORDER BY created_at DESC
     """)
+    unsubscribed_by_email = get_unsubscribed_map()
 
     campaigns_info = []
     total_sent = 0
@@ -1418,6 +1602,9 @@ def get_dashboard_stats():
 
         failed_count  = sum(1 for d in send_details if d.get("status") == "failed")
         skipped_count = sum(1 for d in send_details if d.get("status") == "skipped")
+        unsubscribed_count = sum(
+            1 for d in send_details if _recipient_email(d) in unsubscribed_by_email
+        )
 
         # Per-step progress — derived from steps_completed so it works for all steps
         current_step = progress.get("current_step", 1)
@@ -1437,6 +1624,7 @@ def get_dashboard_stats():
             "pending": progress.get("pending", 0),
             "failed": failed_count,
             "skipped": skipped_count,
+            "unsubscribed": unsubscribed_count,
             "undelivered": failed_count + skipped_count,
             "opens": opens_for_campaign,
             "open_rate": open_rate,
@@ -1462,6 +1650,8 @@ def get_dashboard_stats():
         "campaigns": campaigns_info,
         "recent_opens": [dict(r) for r in recent_opens],
         "recent_replies": all_recent_replies[:10],
+        "total_unsubscribed": len(unsubscribed_by_email),
+        "recent_unsubscribes": list(unsubscribed_by_email.values())[:10],
     }
 
 
@@ -1480,6 +1670,11 @@ CAMPAIGN_SEGMENT_DEFINITIONS = [
         "key": "replied",
         "label": "Replied",
         "description": "People who replied, so follow-ups are suppressed.",
+    },
+    {
+        "key": "unsubscribed",
+        "label": "Unsubscribed",
+        "description": "People who opted out and are globally suppressed from future newsletters.",
     },
     {
         "key": "denied_profiles",
@@ -1527,6 +1722,8 @@ def _campaign_open_map(campaign_id):
 
 
 def _segment_reason(detail, open_info=None):
+    if detail.get("unsubscribed"):
+        return "Unsubscribed from all Ken Research newsletters"
     if detail.get("skip_reason"):
         return detail.get("skip_reason")
     if detail.get("fail_reason"):
@@ -1558,6 +1755,8 @@ def _segment_recipient(detail, open_info=None):
         "open_count": open_info.get("open_count", 0),
         "last_open": open_info.get("last_open"),
         "reason": _segment_reason(detail, open_info),
+        "unsubscribed": bool(detail.get("unsubscribed")),
+        "unsubscribed_at": detail.get("unsubscribed_at"),
     }
 
 
@@ -1569,6 +1768,7 @@ def build_campaign_segments(campaign_id, progress):
     }
     send_details = progress.get("send_details", []) or []
     opens_by_email = _campaign_open_map(campaign_id)
+    unsubscribed_by_email = get_unsubscribed_map([_recipient_email(detail) for detail in send_details])
     seen = set()
 
     def add(segment_key, recipient):
@@ -1580,6 +1780,11 @@ def build_campaign_segments(campaign_id, progress):
         status = (detail.get("status") or "pending").lower()
         validation_status = (detail.get("validation_status") or "").lower()
         open_info = opens_by_email.get(email)
+        preference = unsubscribed_by_email.get(email)
+        if preference:
+            detail = dict(detail)
+            detail["unsubscribed"] = True
+            detail["unsubscribed_at"] = preference.get("unsubscribed_at")
         recipient = _segment_recipient(detail, open_info)
 
         if status == "sent":
@@ -1588,13 +1793,15 @@ def build_campaign_segments(campaign_id, progress):
             add("opened", recipient)
         if detail.get("replied"):
             add("replied", recipient)
+        if detail.get("unsubscribed"):
+            add("unsubscribed", recipient)
         if status == "skipped" or validation_status in {"invalid", "risky"}:
             add("denied_profiles", recipient)
         if validation_status in {"", "unknown"}:
             add("unidentified_profiles", recipient)
         if status == "failed":
             add("undelivered", recipient)
-        if status not in {"sent", "failed", "skipped"}:
+        if status not in {"sent", "failed", "skipped", "unsubscribed"} and not detail.get("unsubscribed"):
             add("pending", recipient)
 
     for email, open_info in opens_by_email.items():
@@ -1730,6 +1937,93 @@ def get_campaign_performance():
 # Routes
 # ---------------------------------------------------------------------------
 
+@app.route("/unsubscribe/<token>", methods=["GET", "POST"])
+def unsubscribe_preference(token):
+    """Branded preference flow plus RFC 8058-compatible one-click POST handling."""
+    try:
+        payload = read_unsubscribe_token(token)
+    except InvalidUnsubscribeToken as exc:
+        response = make_response(
+            render_template(
+                "unsubscribe.html",
+                state="confirm",
+                masked_email="this address",
+                error=str(exc),
+            ),
+            400,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    email = payload["email"]
+    campaign_id = payload["campaign_id"]
+    scope = payload["scope"]
+
+    if request.method == "POST":
+        one_click = request.form.get("List-Unsubscribe") == "One-Click"
+        action = "unsubscribe" if one_click else request.form.get("action", "unsubscribe")
+        unsubscribed = action != "resubscribe"
+        set_subscription_preference(
+            email,
+            unsubscribed=unsubscribed,
+            campaign_id=campaign_id,
+            scope=scope,
+            source="one_click_header" if one_click else "preference_page",
+        )
+        if unsubscribed:
+            tag_campaign_recipient_unsubscribed(campaign_id, email)
+
+        if one_click:
+            response = make_response("Unsubscribed", 200)
+        elif request.accept_mimetypes.best == "application/json":
+            response = jsonify({"ok": True, "state": "success" if unsubscribed else "resubscribed"})
+        else:
+            response = make_response(
+                render_template(
+                    "unsubscribe.html",
+                    state="success" if unsubscribed else "resubscribed",
+                    masked_email=masked_email(email),
+                    error="",
+                )
+            )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    state = "success" if is_unsubscribed(email) else "confirm"
+    response = make_response(
+        render_template(
+            "unsubscribe.html",
+            state=state,
+            masked_email=masked_email(email),
+            error="",
+        )
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/subscriptions")
+def subscription_dashboard():
+    preferences = query_db(
+        """SELECT email, is_unsubscribed, scope, source_campaign_id,
+                  unsubscribed_at, resubscribed_at, updated_at
+           FROM subscriber_preferences
+           ORDER BY updated_at DESC"""
+    )
+    events = query_db(
+        """SELECT email, action, scope, campaign_id, source, created_at
+           FROM subscription_events
+           ORDER BY created_at DESC
+           LIMIT 100"""
+    )
+    return render_template(
+        "subscriptions.html",
+        preferences=[dict(row) for row in preferences],
+        events=[dict(row) for row in events],
+        active_unsubscribes=sum(1 for row in preferences if row["is_unsubscribed"]),
+    )
+
+
 @app.route("/")
 def dashboard():
     stats = get_dashboard_stats()
@@ -1805,11 +2099,15 @@ def send_submit():
     if template_mode == "kensight_newsletter":
         newsletter_template = request.form.get("newsletter_template", "overview").strip() or "overview"
         if newsletter_template == "automotive_pov":
-            body_1 = render_kensight_pov_newsletter(request.form, "cid")
+            pov_form = request.form.to_dict(flat=True)
+            pov_form["pov_unsubscribe_url"] = UNSUBSCRIBE_URL_PLACEHOLDER
+            body_1 = render_kensight_pov_newsletter(pov_form, "cid")
         else:
             body_1 = render_kensight_newsletter(request.form, "cid")
     elif template_mode == "industry_intelligence":
-        content = industry_content(request.form)
+        industry_form = request.form.to_dict(flat=True)
+        industry_form["ind_unsubscribe_url"] = UNSUBSCRIBE_URL_PLACEHOLDER
+        content = industry_content(industry_form)
         problems = validate_industry_content(content)
         if problems:
             flash(" ".join(problems), "error")
@@ -1825,7 +2123,7 @@ def send_submit():
         if cover_b64:
             industry_attachments.append((INDUSTRY_IMAGE_FILES["report"], cover_b64))
             image_src["report"] = f"cid:{INDUSTRY_IMAGE_FILES['report']}"
-        body_1 = render_industry_newsletter(request.form, "cid", image_src, has_report_cover=bool(cover_b64))
+        body_1 = render_industry_newsletter(industry_form, "cid", image_src, has_report_cover=bool(cover_b64))
         if not request.form.get("subject_1", "").strip():
             subject_1 = content["hero_title"]
     else:
@@ -2195,7 +2493,8 @@ def resume_campaign(campaign_id):
             {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", ""), "designation": d.get("designation", "")}
             for d in progress.get("send_details", [])
             if current_step not in d.get("steps_completed", [])
-            and d.get("status") not in ("failed", "skipped")
+            and d.get("status") not in ("failed", "skipped", "unsubscribed")
+            and not d.get("unsubscribed")
             and not d.get("replied")
         ]
         if not pending_recipients:
@@ -2259,6 +2558,7 @@ def retry_campaign(campaign_id):
             {"email": r["recipient"], "first_name": r.get("first_name", ""), "company": r.get("company", ""), "designation": r.get("designation", "")}
             for r in original_send_details
         ]
+        unsubscribed = get_unsubscribed_map([recipient["email"] for recipient in retry_recipients])
 
         account_num = brief.get("account_number", "1")
         tracker_url = get_tracker_url()
@@ -2267,6 +2567,9 @@ def retry_campaign(campaign_id):
         progress["current_step"] = 1
         progress["next_step_send_at"] = None
         progress["last_update"] = datetime.now().isoformat()
+        progress["sent"] = 0
+        progress["failed"] = 0
+        progress["pending"] = len(original_send_details) - len(unsubscribed)
         progress["send_details"] = [
             {
                 "recipient": r["recipient"],
@@ -2275,9 +2578,16 @@ def retry_campaign(campaign_id):
                 "designation": r.get("designation", ""),
                 "step": 0,
                 "steps_completed": [],
-                "status": "pending",
+                "status": "unsubscribed" if normalize_email(r["recipient"]) in unsubscribed else "pending",
                 "sent_at": None,
                 "retry_count": 0,
+                "unsubscribed": normalize_email(r["recipient"]) in unsubscribed,
+                "unsubscribed_at": (
+                    unsubscribed[normalize_email(r["recipient"])].get("unsubscribed_at").isoformat()
+                    if normalize_email(r["recipient"]) in unsubscribed
+                    and unsubscribed[normalize_email(r["recipient"])].get("unsubscribed_at")
+                    else None
+                ),
             }
             for r in original_send_details
         ]
@@ -2306,12 +2616,19 @@ def campaign_detail(campaign_id):
         flash(f"Campaign '{campaign_id}' not found.", "error")
         return redirect(url_for("dashboard"))
     campaign_segments = build_campaign_segments(campaign_id, progress)
+    recipient_rows = [dict(row) for row in progress.get("send_details", [])]
+    preferences = get_unsubscribed_map([_recipient_email(row) for row in recipient_rows])
+    for row in recipient_rows:
+        preference = preferences.get(_recipient_email(row))
+        if preference:
+            row["unsubscribed"] = True
+            row["unsubscribed_at"] = preference.get("unsubscribed_at")
     return render_template(
         "campaign_detail.html",
         brief=brief,
         progress=progress,
         campaign_id=campaign_id,
-        recipients=progress.get("send_details", []),
+        recipients=recipient_rows,
         campaign_segments=campaign_segments,
     )
 
@@ -2347,6 +2664,8 @@ def download_campaign_segment(campaign_id, segment_key):
         "company",
         "designation",
         "status",
+        "subscription_status",
+        "unsubscribed_at",
         "validation_status",
         "validation_result",
         "reason",
@@ -2370,6 +2689,8 @@ def download_campaign_segment(campaign_id, segment_key):
             "company": recipient.get("company", ""),
             "designation": recipient.get("designation", ""),
             "status": recipient.get("status", ""),
+            "subscription_status": "unsubscribed" if recipient.get("unsubscribed") else "subscribed",
+            "unsubscribed_at": recipient.get("unsubscribed_at") or "",
             "validation_status": recipient.get("validation_status", ""),
             "validation_result": recipient.get("validation_result", ""),
             "reason": recipient.get("reason", ""),
@@ -2424,6 +2745,7 @@ def add_recipients(campaign_id):
         flash(f"All {len(new_recipients)} recipient(s) in this file are already in the campaign.", "error")
         return redirect(url_for("campaign_detail", campaign_id=campaign_id))
 
+    unsubscribed = get_unsubscribed_map([recipient["email"] for recipient in fresh])
     progress.setdefault("send_details", []).extend([
         {
             "recipient": r["email"],
@@ -2432,14 +2754,21 @@ def add_recipients(campaign_id):
             "designation": r.get("designation", ""),
             "step": 0,
             "steps_completed": [],
-            "status": "pending",
+            "status": "unsubscribed" if normalize_email(r["email"]) in unsubscribed else "pending",
             "sent_at": None,
             "retry_count": 0,
+            "unsubscribed": normalize_email(r["email"]) in unsubscribed,
+            "unsubscribed_at": (
+                unsubscribed[normalize_email(r["email"])].get("unsubscribed_at").isoformat()
+                if normalize_email(r["email"]) in unsubscribed
+                and unsubscribed[normalize_email(r["email"])].get("unsubscribed_at")
+                else None
+            ),
         }
         for r in fresh
     ])
     progress["total_recipients"] = progress.get("total_recipients", 0) + len(fresh)
-    progress["pending"] = progress.get("pending", 0) + len(fresh)
+    progress["pending"] = progress.get("pending", 0) + len(fresh) - len(unsubscribed)
     progress["last_update"] = datetime.now().isoformat()
     _save_progress(campaign_id, progress)
 
@@ -2507,7 +2836,8 @@ def resume_all():
                 {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", ""), "designation": d.get("designation", "")}
                 for d in prog.get("send_details", [])
                 if current_step not in d.get("steps_completed", [])
-                and d.get("status") not in ("failed", "skipped")
+                and d.get("status") not in ("failed", "skipped", "unsubscribed")
+                and not d.get("unsubscribed")
                 and not d.get("replied")
             ]
             if not pending:
@@ -2646,7 +2976,8 @@ def auto_resume_pending_campaigns():
                 {"email": d["recipient"], "first_name": d.get("first_name", ""), "company": d.get("company", ""), "designation": d.get("designation", "")}
                 for d in progress.get("send_details", [])
                 if current_step not in d.get("steps_completed", [])
-                and d.get("status") not in ("failed", "skipped")
+                and d.get("status") not in ("failed", "skipped", "unsubscribed")
+                and not d.get("unsubscribed")
                 and not d.get("replied")
             ]
             if not pending:
@@ -2815,9 +3146,10 @@ def bounce_checker_worker():
 
 # Run on startup regardless of whether launched via Python or gunicorn
 init_db()
-auto_resume_pending_campaigns()
-threading.Thread(target=reply_checker_worker, daemon=True).start()
-threading.Thread(target=bounce_checker_worker, daemon=True).start()
+if os.getenv("SKIP_BACKGROUND_WORKERS", "").lower() not in {"1", "true", "yes"}:
+    auto_resume_pending_campaigns()
+    threading.Thread(target=reply_checker_worker, daemon=True).start()
+    threading.Thread(target=bounce_checker_worker, daemon=True).start()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))

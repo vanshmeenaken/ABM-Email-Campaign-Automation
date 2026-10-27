@@ -17,7 +17,7 @@
 </script>
 
 <!-- ── Summary Cards ── -->
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
 
   <!-- Total Campaigns -->
   <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
@@ -42,6 +42,12 @@
     <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Avg Open Rate</p>
     <p class="text-3xl font-bold text-green-600">{{ avg_open_rate }}</p>
   </div>
+
+  <a href="{{ url_for('subscription_dashboard') }}" class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 hover:border-red-200 transition">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Unsubscribed</p>
+    <p class="text-3xl font-bold text-red-600">{{ total_unsubscribed }}</p>
+    <p class="text-xs text-gray-400 mt-1">View suppression list</p>
+  </a>
 
 </div>
 
@@ -92,6 +98,7 @@
             <th class="px-6 py-3 text-center font-medium">Undelivered</th>
             <th class="px-6 py-3 text-center font-medium">Opens</th>
             <th class="px-6 py-3 text-center font-medium">Replied</th>
+            <th class="px-6 py-3 text-center font-medium">Unsubscribed</th>
             <th class="px-6 py-3 text-center font-medium">Open Rate</th>
             <th class="px-6 py-3 text-left font-medium">Last Open</th>
             <th class="px-6 py-3 text-center font-medium">Action</th>
@@ -155,6 +162,13 @@
                 <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">{{ c.replied }}</span>
               {% else %}
                 <span class="text-gray-400 text-xs">—</span>
+              {% endif %}
+            </td>
+            <td class="px-6 py-3 text-center">
+              {% if c.unsubscribed > 0 %}
+                <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">{{ c.unsubscribed }}</span>
+              {% else %}
+                <span class="text-gray-300 text-xs">&mdash;</span>
               {% endif %}
             </td>
             <td class="px-6 py-3 text-center">

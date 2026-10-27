@@ -55,9 +55,10 @@
 {% set sent_count = recipients | selectattr('status', 'equalto', 'sent') | list | length %}
 {% set failed_count = recipients | selectattr('status', 'equalto', 'failed') | list | length %}
 {% set skipped_count = recipients | selectattr('status', 'equalto', 'skipped') | list | length %}
+{% set unsubscribed_count = recipients | selectattr('unsubscribed', 'equalto', true) | list | length %}
 {% set undelivered_count = failed_count + skipped_count %}
 
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
   <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
     <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Total</p>
     <p class="text-2xl font-bold text-gray-800">{{ recipients | length }}</p>
@@ -75,7 +76,11 @@
   </div>
   <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
     <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Pending</p>
-    <p class="text-2xl font-bold text-amber-500">{{ (recipients | length) - sent_count - undelivered_count }}</p>
+    <p class="text-2xl font-bold text-amber-500">{{ (recipients | length) - sent_count - undelivered_count - unsubscribed_count }}</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 text-center">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Unsubscribed</p>
+    <p class="text-2xl font-bold text-red-600">{{ unsubscribed_count }}</p>
   </div>
 </div>
 
@@ -159,6 +164,7 @@
               <th class="px-6 py-3 text-left font-medium">Company</th>
               <th class="px-6 py-3 text-left font-medium">Designation</th>
               <th class="px-6 py-3 text-center font-medium">Status</th>
+              <th class="px-6 py-3 text-center font-medium">Preference</th>
               <th class="px-6 py-3 text-center font-medium">Validation</th>
               <th class="px-6 py-3 text-center font-medium">Opens</th>
               <th class="px-6 py-3 text-left font-medium">Reason / Detail</th>
@@ -178,6 +184,13 @@
                   {% else %}bg-amber-50 text-amber-600{% endif %}">
                   {{ r.status | capitalize }}
                 </span>
+              </td>
+              <td class="px-6 py-3 text-center">
+                {% if r.unsubscribed %}
+                <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Unsubscribed</span>
+                {% else %}
+                <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-green-50 text-green-700">Subscribed</span>
+                {% endif %}
               </td>
               <td class="px-6 py-3 text-center text-xs text-gray-500">
                 {{ r.validation_status or 'Not checked' }}
@@ -213,6 +226,7 @@
           <th class="px-6 py-3 text-left font-medium">Company</th>
           <th class="px-6 py-3 text-left font-medium">Designation</th>
           <th class="px-6 py-3 text-center font-medium">Validation</th>
+          <th class="px-6 py-3 text-center font-medium">Preference</th>
           <th class="px-6 py-3 text-center font-medium">Status</th>
           <th class="px-6 py-3 text-center font-medium">Steps Done</th>
           <th class="px-6 py-3 text-center font-medium">Replied</th>
@@ -221,7 +235,7 @@
       <tbody class="divide-y divide-gray-100">
         {% for r in recipients %}
         <tr class="transition
-          {% if r.status in ('failed', 'skipped') %}bg-red-50 hover:bg-red-100
+          {% if r.status in ('failed', 'skipped', 'unsubscribed') %}bg-red-50 hover:bg-red-100
           {% elif r.status == 'sent' %}hover:bg-green-50
           {% else %}hover:bg-gray-50{% endif %}">
           <td class="px-6 py-3 font-mono text-xs text-gray-700">{{ r.recipient }}</td>
@@ -239,6 +253,14 @@
               <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">? Unknown</span>
             {% else %}
               <span class="text-gray-300 text-xs">Not checked</span>
+            {% endif %}
+          </td>
+          <td class="px-6 py-3 text-center">
+            {% if r.unsubscribed %}
+              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">Unsubscribed</span>
+              {% if r.unsubscribed_at %}<p class="text-[10px] text-gray-400 mt-1">{{ r.unsubscribed_at | friendly_dt }}</p>{% endif %}
+            {% else %}
+              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-700">Subscribed</span>
             {% endif %}
           </td>
           <td class="px-6 py-3 text-center">
@@ -260,6 +282,10 @@
               <p class="text-xs text-gray-400 mt-0.5" title="{{ r.fail_reason or '' }}">
                 {{ r.fail_reason or 'Send failed' }}
               </p>
+            {% elif r.status == 'unsubscribed' %}
+              <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+                Suppressed
+              </span>
             {% else %}
               <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-600">Pending</span>
             {% endif %}

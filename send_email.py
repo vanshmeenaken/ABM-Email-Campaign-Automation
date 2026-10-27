@@ -10,6 +10,10 @@ import json
 import requests
 import os
 import re
+import base64
+import mimetypes
+from email.message import EmailMessage
+from email.policy import SMTP
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -84,7 +88,45 @@ def get_access_token(client_id, client_secret):
         print(f"[ERROR] Error getting token: {str(e)}")
         return None
 
-def send_email(account_num, recipient_email, subject="Test Email", body="This is a test email", in_reply_to=None, campaign_id=None, step=1, tracker_url="http://localhost:5000", attachments=None):
+def _mime_message(account, recipient_email, subject, email_body, attachments, unsubscribe_url, in_reply_to=None):
+    """Build RFC-compliant MIME so Graph preserves standard unsubscribe headers."""
+    message = EmailMessage(policy=SMTP)
+    message["From"] = account["email"]
+    message["To"] = recipient_email
+    message["Subject"] = subject
+    message["List-Unsubscribe"] = f"<{unsubscribe_url}>"
+    message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+    if in_reply_to:
+        message["In-Reply-To"] = in_reply_to
+    message.set_content("This newsletter is best viewed in an HTML-capable email client.")
+    message.add_alternative(email_body, subtype="html")
+    html_part = message.get_payload()[-1]
+
+    for attachment in attachments or []:
+        raw = base64.b64decode(attachment["contentBytes"])
+        content_type = attachment.get("contentType") or mimetypes.guess_type(attachment["name"])[0]
+        content_type = content_type or "application/octet-stream"
+        maintype, subtype = content_type.split("/", 1)
+        if attachment.get("isInline"):
+            html_part.add_related(
+                raw,
+                maintype=maintype,
+                subtype=subtype,
+                cid=f"<{attachment.get('contentId', attachment['name'])}>",
+                filename=attachment["name"],
+                disposition="inline",
+            )
+        else:
+            message.add_attachment(
+                raw,
+                maintype=maintype,
+                subtype=subtype,
+                filename=attachment["name"],
+            )
+    return base64.b64encode(message.as_bytes()).decode("ascii")
+
+
+def send_email(account_num, recipient_email, subject="Test Email", body="This is a test email", in_reply_to=None, campaign_id=None, step=1, tracker_url="http://localhost:5000", attachments=None, unsubscribe_url=None):
     """Send email from specified satellite account with optional threading, tracking, and attachments.
 
     attachments: list of dicts with keys name, contentType, contentBytes (base64 str), isInline, contentId (optional)
@@ -154,11 +196,26 @@ def send_email(account_num, recipient_email, subject="Test Email", body="This is
         "Content-Type": "application/json"
     }
 
+    request_kwargs = {"json": email_data}
+    if unsubscribe_url:
+        headers["Content-Type"] = "text/plain"
+        request_kwargs = {
+            "data": _mime_message(
+                account,
+                recipient_email,
+                subject,
+                email_body,
+                attachments,
+                unsubscribe_url,
+                in_reply_to=in_reply_to,
+            )
+        }
+
     try:
         response = requests.post(
             f"https://graph.microsoft.com/v1.0/users/{account['email']}/sendMail",
             headers=headers,
-            json=email_data
+            **request_kwargs,
         )
 
         if response.status_code == 202:

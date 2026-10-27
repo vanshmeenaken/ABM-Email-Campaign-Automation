@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}Subscription Preferences - Ken Research{% endblock %}
+{% block page_title %}Subscription Preferences{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Currently Suppressed</p>
+    <p class="text-3xl font-bold text-red-600">{{ active_unsubscribes }}</p>
+    <p class="text-xs text-gray-400 mt-1">Excluded from every campaign and follow-up</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Preference Records</p>
+    <p class="text-3xl font-bold text-gray-800">{{ preferences | length }}</p>
+    <p class="text-xs text-gray-400 mt-1">Includes resubscriptions and active opt-outs</p>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Recent Events</p>
+    <p class="text-3xl font-bold text-blue-600">{{ events | length }}</p>
+    <p class="text-xs text-gray-400 mt-1">Latest 100 preference changes</p>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
+  <div class="px-6 py-4 border-b border-gray-100">
+    <h3 class="font-semibold text-gray-800">Individual Subscription Status</h3>
+    <p class="text-xs text-gray-400 mt-0.5">The send engine checks this list immediately before every email</p>
+  </div>
+  {% if preferences %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+        <tr>
+          <th class="px-6 py-3 text-left font-medium">Email</th>
+          <th class="px-6 py-3 text-center font-medium">Status</th>
+          <th class="px-6 py-3 text-left font-medium">Scope</th>
+          <th class="px-6 py-3 text-left font-medium">Source Campaign</th>
+          <th class="px-6 py-3 text-left font-medium">Last Updated</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for person in preferences %}
+        <tr class="hover:bg-gray-50">
+          <td class="px-6 py-3 font-mono text-xs text-gray-700">{{ person.email }}</td>
+          <td class="px-6 py-3 text-center">
+            {% if person.is_unsubscribed %}
+            <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">Unsubscribed</span>
+            {% else %}
+            <span class="inline-flex px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Subscribed</span>
+            {% endif %}
+          </td>
+          <td class="px-6 py-3 text-xs text-gray-500">{{ person.scope | replace('_', ' ') | title }}</td>
+          <td class="px-6 py-3 text-xs text-gray-500 font-mono">{{ person.source_campaign_id or '—' }}</td>
+          <td class="px-6 py-3 text-xs text-gray-500">{{ person.updated_at | friendly_dt }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="px-6 py-12 text-center text-sm text-gray-400">No subscription changes have been recorded yet.</div>
+  {% endif %}
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+  <div class="px-6 py-4 border-b border-gray-100">
+    <h3 class="font-semibold text-gray-800">Preference Activity</h3>
+    <p class="text-xs text-gray-400 mt-0.5">Auditable unsubscribe and resubscribe history</p>
+  </div>
+  {% if events %}
+  <ul class="divide-y divide-gray-100">
+    {% for event in events %}
+    <li class="px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <span class="font-mono text-xs text-gray-700">{{ event.email }}</span>
+        <span class="ml-2 inline-flex px-2 py-0.5 rounded-full text-xs font-semibold {% if event.action == 'unsubscribed' %}bg-red-100 text-red-700{% else %}bg-green-100 text-green-700{% endif %}">
+          {{ event.action | capitalize }}
+        </span>
+        <p class="text-xs text-gray-400 mt-1">{{ event.source | replace('_', ' ') | title }}{% if event.campaign_id %} · {{ event.campaign_id }}{% endif %}</p>
+      </div>
+      <span class="text-xs text-gray-400">{{ event.created_at | friendly_dt }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="px-6 py-12 text-center text-sm text-gray-400">No preference events yet.</div>
+  {% endif %}
+</div>
+{% endblock %}
