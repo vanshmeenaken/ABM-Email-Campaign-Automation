@@ -1487,8 +1487,8 @@ def set_subscription_preference(email, unsubscribed, campaign_id="", scope="all_
         conn.close()
 
 
-def tag_campaign_recipient_unsubscribed(campaign_id, email):
-    """Add a visible preference tag without overwriting delivery history."""
+def tag_campaign_recipient_subscription(campaign_id, email, unsubscribed):
+    """Synchronize one campaign's recipient tag without overwriting delivery history."""
     if not campaign_id:
         return
     try:
@@ -1496,18 +1496,39 @@ def tag_campaign_recipient_unsubscribed(campaign_id, email):
         changed = False
         for detail in progress.get("send_details", []):
             if _recipient_email(detail) == normalize_email(email):
-                was_pending = detail.get("status", "pending") not in {"sent", "failed", "skipped", "unsubscribed"}
-                detail["unsubscribed"] = True
-                detail["unsubscribed_at"] = datetime.now().isoformat()
-                if was_pending:
-                    detail["status"] = "unsubscribed"
-                    progress["pending"] = max(0, progress.get("pending", 0) - 1)
+                if unsubscribed:
+                    was_pending = detail.get("status", "pending") not in {"sent", "failed", "skipped", "unsubscribed"}
+                    detail["unsubscribed"] = True
+                    detail["unsubscribed_at"] = datetime.now().isoformat()
+                    if was_pending:
+                        detail["status"] = "unsubscribed"
+                        progress["pending"] = max(0, progress.get("pending", 0) - 1)
+                else:
+                    detail["unsubscribed"] = False
+                    detail["unsubscribed_at"] = None
+                    if detail.get("status") == "unsubscribed":
+                        detail["status"] = "pending"
+                        progress["pending"] = progress.get("pending", 0) + 1
                 changed = True
         if changed:
             progress["last_update"] = datetime.now().isoformat()
             _save_progress(campaign_id, progress)
     except Exception as exc:
-        print(f"[UNSUBSCRIBE TAG] Could not update {campaign_id}: {exc}")
+        print(f"[SUBSCRIPTION TAG] Could not update {campaign_id}: {exc}")
+
+
+def tag_campaign_recipient_unsubscribed(campaign_id, email):
+    tag_campaign_recipient_subscription(campaign_id, email, True)
+
+
+def synchronize_recipient_subscription_tags(email, unsubscribed):
+    """Update current preference tags across every campaign containing the recipient."""
+    rows = query_db("SELECT campaign_id, progress FROM campaigns")
+    normalized = normalize_email(email)
+    for row in rows:
+        progress = row["progress"] if isinstance(row["progress"], dict) else json.loads(row["progress"])
+        if any(_recipient_email(detail) == normalized for detail in progress.get("send_details", [])):
+            tag_campaign_recipient_subscription(row["campaign_id"], normalized, unsubscribed)
 
 
 # ---------------------------------------------------------------------------
@@ -1781,10 +1802,12 @@ def build_campaign_segments(campaign_id, progress):
         validation_status = (detail.get("validation_status") or "").lower()
         open_info = opens_by_email.get(email)
         preference = unsubscribed_by_email.get(email)
+        detail = dict(detail)
+        detail["unsubscribed"] = bool(preference)
         if preference:
-            detail = dict(detail)
-            detail["unsubscribed"] = True
             detail["unsubscribed_at"] = preference.get("unsubscribed_at")
+        else:
+            detail["unsubscribed_at"] = None
         recipient = _segment_recipient(detail, open_info)
 
         if status == "sent":
@@ -1970,8 +1993,7 @@ def unsubscribe_preference(token):
             scope=scope,
             source="one_click_header" if one_click else "preference_page",
         )
-        if unsubscribed:
-            tag_campaign_recipient_unsubscribed(campaign_id, email)
+        synchronize_recipient_subscription_tags(email, unsubscribed)
 
         if one_click:
             response = make_response("Unsubscribed", 200)
@@ -2620,9 +2642,11 @@ def campaign_detail(campaign_id):
     preferences = get_unsubscribed_map([_recipient_email(row) for row in recipient_rows])
     for row in recipient_rows:
         preference = preferences.get(_recipient_email(row))
+        row["unsubscribed"] = bool(preference)
         if preference:
-            row["unsubscribed"] = True
             row["unsubscribed_at"] = preference.get("unsubscribed_at")
+        else:
+            row["unsubscribed_at"] = None
     return render_template(
         "campaign_detail.html",
         brief=brief,
