@@ -857,6 +857,22 @@ function invalidateIndustryImages() {
   status.className = 'text-xs text-amber-700';
 }
 
+async function readDashboardJson(response, label) {
+  const raw = await response.text();
+  if (!raw.trim()) {
+    const error = new Error(label + ' returned an empty HTTP ' + response.status + ' response.');
+    error.retryable = true;
+    throw error;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    const error = new Error(label + ' returned an invalid HTTP ' + response.status + ' response.');
+    error.retryable = true;
+    throw error;
+  }
+}
+
 async function generateIndustryImages(slots) {
   const status = document.getElementById('ind_image_status');
   const btn = document.getElementById('ind_generate_btn');
@@ -866,19 +882,45 @@ async function generateIndustryImages(slots) {
   try {
     const extra = (slots || []).map(s => ['slots', s]);
     const res = await fetch('/api/newsletter/industry-images', { method: 'POST', body: industryFormData(extra) });
-    let data = await res.json();
+    let data = await readDashboardJson(res, 'The generation request');
     if (!res.ok) throw new Error(data.error || 'Request failed');
     const token = data.token;
     document.getElementById('ind_image_token').value = token;
     status.textContent = 'NVIDIA is generating the images in the background. You can keep this page open; this may take several minutes.';
-    for (let attempt = 0; attempt < 200; attempt++) {
+    let transientPollFailures = 0;
+    for (let attempt = 0; attempt < 400; attempt++) {
       await new Promise(resolve => setTimeout(resolve, 3000));
-      const poll = await fetch('/api/newsletter/industry-images/' + encodeURIComponent(token), { cache: 'no-store' });
-      data = await poll.json();
-      if (!poll.ok) throw new Error(data.error || 'Could not check image status');
+      let poll;
+      let pollData;
+      try {
+        poll = await fetch('/api/newsletter/industry-images/' + encodeURIComponent(token), { cache: 'no-store' });
+        pollData = await readDashboardJson(poll, 'The image status check');
+      } catch (pollError) {
+        transientPollFailures += 1;
+        if (transientPollFailures <= 12) {
+          status.textContent = 'The dashboard connection was interrupted briefly. The image job is still running; reconnecting automatically (' + transientPollFailures + '/12)...';
+          status.className = 'text-xs text-amber-700';
+          continue;
+        }
+        throw pollError;
+      }
+      if (!poll.ok) {
+        const pollError = new Error(pollData.error || 'Could not check image status (HTTP ' + poll.status + ')');
+        if ((poll.status === 429 || poll.status >= 500) && transientPollFailures < 12) {
+          transientPollFailures += 1;
+          status.textContent = 'Render is temporarily unavailable while the NVIDIA job continues. Reconnecting automatically (' + transientPollFailures + '/12)...';
+          status.className = 'text-xs text-amber-700';
+          continue;
+        }
+        throw pollError;
+      }
+      transientPollFailures = 0;
+      data = pollData;
       if (data.status === 'failed') throw new Error(data.error || 'NVIDIA image generation failed');
       if (data.status === 'complete') break;
-      if (attempt === 199) throw new Error('Image generation is still running. Refresh the page and try again later.');
+      status.textContent = 'NVIDIA is generating the images in the background. Keep this page open; long provider queues can take several minutes.';
+      status.className = 'text-xs text-gray-500';
+      if (attempt === 399) throw new Error('Image generation is still running after 20 minutes. Try regenerating one image at a time.');
     }
     let anyPlaceholder = false;
     Object.entries(data.images).forEach(([slot, info]) => {
