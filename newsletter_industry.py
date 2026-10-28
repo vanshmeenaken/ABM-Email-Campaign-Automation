@@ -72,7 +72,6 @@ def industry_content(form):
         "report_cta_text": _v(form, "ind_report_cta_text", "Explore the Full Market Report"),
         "report_cta_url": _v(form, "ind_report_cta_url", DEFAULT_URL),
         "contact_url": _v(form, "ind_contact_url", "https://www.kenresearch.com/contact-us"),
-        "preferences_url": _v(form, "ind_preferences_url", DEFAULT_URL),
         "unsubscribe_url": _v(form, "ind_unsubscribe_url", DEFAULT_URL),
         "linkedin_url": _v(form, "ind_social_linkedin", "https://www.linkedin.com/company/ken-research"),
         "x_url": _v(form, "ind_social_x", "https://x.com/kenresearch"),
@@ -309,7 +308,7 @@ def render_industry_newsletter(form, asset_base_url="", image_src=None, has_repo
         </tr></table>
       </td></tr>
       <tr><td height="10" align="center" valign="top" style="height:10px;padding:0 32px;">
-        <a href="{_url(content['contact_url'])}" target="_blank" style="{footer_link_style}">Contact Us</a>{separator}<a href="{_url(content['preferences_url'])}" target="_blank" style="{footer_link_style}">Manage Preferences</a>{separator}<a href="{_url(content['unsubscribe_url'])}" target="_blank" style="{footer_link_style}">Unsubscribe</a>
+        <a href="{_url(content['contact_url'])}" target="_blank" style="{footer_link_style}">Contact Us</a>{separator}<a href="{_url(content['unsubscribe_url'])}" target="_blank" style="{footer_link_style}">Unsubscribe</a>
       </td></tr>
     </table>
   </td></tr>

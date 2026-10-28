@@ -1123,7 +1123,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                     p_subject = personalize(subject, first_name, company, designation)
                     p_body = plain_to_html(personalize(body, first_name, company, designation))
                     unsubscribe_url = build_unsubscribe_url(email, campaign_id, tracker_url)
-                    p_body = p_body.replace(UNSUBSCRIBE_URL_PLACEHOLDER, unsubscribe_url)
+                    p_body = apply_unsubscribe_url(p_body, unsubscribe_url)
                     graph_atts = newsletter_inline_attachments(p_body)
 
                     # Apply attachments — replace markers in body, build graph list
@@ -1410,6 +1410,25 @@ def build_unsubscribe_url(email, campaign_id="", fallback_base=""):
         )
     token = create_unsubscribe_token(email, campaign_id=campaign_id)
     return f"{base}/unsubscribe/{token}"
+
+
+def apply_unsubscribe_url(body, unsubscribe_url):
+    """Force the visible Unsubscribe link to use the recipient's signed URL."""
+    import re
+    from html import escape
+
+    safe_url = escape(unsubscribe_url, quote=True)
+    body = body.replace(UNSUBSCRIBE_URL_PLACEHOLDER, safe_url)
+    pattern = re.compile(
+        r'(<a\b[^>]*\bhref\s*=\s*)(["\'])[^"\']*\2([^>]*>\s*Unsubscribe\s*</a>)',
+        re.IGNORECASE,
+    )
+    return pattern.sub(
+        lambda match: (
+            match.group(1) + match.group(2) + safe_url + match.group(2) + match.group(3)
+        ),
+        body,
+    )
 
 
 def get_unsubscribed_map(emails=None):

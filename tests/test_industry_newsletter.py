@@ -77,6 +77,7 @@ class NewsletterRendererTests(unittest.TestCase):
         self.assertIn("https://example.com/hero", html)
         self.assertIn("&lt;script&gt;", html)
         self.assertNotIn('<script>alert("x")</script>', html)
+        self.assertNotIn("Manage Preferences", html)
 
     def test_quality_styling_uses_outlook_safe_buttons_and_heavy_arrows(self):
         sources = {slot: f"cid:{filename}" for slot, filename in IMAGE_FILES.items()}

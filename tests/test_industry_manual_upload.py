@@ -45,6 +45,20 @@ class IndustryManualUploadTests(unittest.TestCase):
         self.assertIn("Transition · 572 × 606".encode(), response.data)
         self.assertIn(b'ind_upload_hero', response.data)
         self.assertNotIn(b"Generate images from content", response.data)
+        self.assertNotIn(b"Manage Preferences", response.data)
+
+    def test_unsubscribe_anchor_is_always_replaced_with_signed_recipient_url(self):
+        signed_url = "https://dashboard.example.com/unsubscribe/signed-token"
+        body = (
+            '<a href="https://www.kenresearch.com" target="_blank">Unsubscribe</a>'
+            '<a href="https://www.kenresearch.com/contact-us">Contact Us</a>'
+        )
+
+        result = webapp.apply_unsubscribe_url(body, signed_url)
+
+        self.assertIn(f'href="{signed_url}"', result)
+        self.assertIn('href="https://www.kenresearch.com/contact-us"', result)
+        self.assertNotIn('href="https://www.kenresearch.com" target="_blank">Unsubscribe', result)
 
     @patch.object(webapp, "_stored_image_payload")
     @patch.object(webapp, "_store_generated_images")
