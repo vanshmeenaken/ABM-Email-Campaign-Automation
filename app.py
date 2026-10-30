@@ -11,7 +11,7 @@ import os
 import json
 import socket
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from io import BytesIO, StringIO
 
 import psycopg2
@@ -1124,6 +1124,14 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                     p_body = plain_to_html(personalize(body, first_name, company, designation))
                     unsubscribe_url = build_unsubscribe_url(email, campaign_id, tracker_url)
                     p_body = apply_unsubscribe_url(p_body, unsubscribe_url)
+                    p_body = apply_click_tracking(
+                        p_body,
+                        tracker_url,
+                        campaign_id,
+                        email,
+                        step_num,
+                        unsubscribe_url=unsubscribe_url,
+                    )
                     graph_atts = newsletter_inline_attachments(p_body)
 
                     # Apply attachments — replace markers in body, build graph list
@@ -1292,6 +1300,20 @@ def init_db():
             )
         """)
         c.execute("""
+            CREATE TABLE IF NOT EXISTS clicks (
+                id BIGSERIAL PRIMARY KEY,
+                campaign_id TEXT NOT NULL,
+                recipient TEXT NOT NULL,
+                step INTEGER NOT NULL,
+                target_url TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                user_agent TEXT,
+                ip_address TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_clicks_campaign ON clicks (campaign_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_clicks_campaign_url ON clicks (campaign_id, target_url)")
+        c.execute("""
             CREATE TABLE IF NOT EXISTS campaigns (
                 campaign_id TEXT PRIMARY KEY,
                 brief JSONB NOT NULL DEFAULT '{}',
@@ -1431,6 +1453,84 @@ def apply_unsubscribe_url(body, unsubscribe_url):
     )
 
 
+CLICK_TOKEN_SALT = "ken-research-newsletter-click-v1"
+
+
+def _click_serializer():
+    from itsdangerous import URLSafeSerializer
+
+    secret = (
+        os.getenv("CLICK_TRACKING_SECRET_KEY")
+        or os.getenv("UNSUBSCRIBE_SECRET_KEY")
+        or app.secret_key
+    )
+    if not secret:
+        raise RuntimeError("FLASK_SECRET_KEY is required for click tracking.")
+    return URLSafeSerializer(secret, salt=CLICK_TOKEN_SALT)
+
+
+def create_click_token(campaign_id, recipient, step, target_url):
+    """Create a tamper-resistant click token containing its final destination."""
+    from urllib.parse import urlparse
+
+    target_url = (target_url or "").strip()
+    parsed = urlparse(target_url)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Only HTTP and HTTPS links can be tracked.")
+    return _click_serializer().dumps({
+        "campaign_id": campaign_id or "",
+        "recipient": normalize_email(recipient),
+        "step": int(step),
+        "target_url": target_url,
+    })
+
+
+def read_click_token(token):
+    """Validate a click token and its redirect destination."""
+    from itsdangerous import BadData
+    from urllib.parse import urlparse
+
+    try:
+        payload = _click_serializer().loads(token)
+    except BadData as exc:
+        raise ValueError("This tracked link is invalid.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("This tracked link is invalid.")
+    target_url = str(payload.get("target_url") or "").strip()
+    parsed = urlparse(target_url)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("This tracked link has an invalid destination.")
+    return {
+        "campaign_id": str(payload.get("campaign_id") or ""),
+        "recipient": normalize_email(payload.get("recipient")),
+        "step": int(payload.get("step") or 0),
+        "target_url": target_url,
+    }
+
+
+def apply_click_tracking(body, tracker_url, campaign_id, recipient, step, unsubscribe_url=""):
+    """Wrap trackable HTML hrefs with a signed campaign click redirect."""
+    import re
+    from html import escape, unescape
+
+    base = (tracker_url or "").strip().rstrip("/")
+    if not base.lower().startswith(("http://", "https://")):
+        return body
+    unsubscribe_url = (unsubscribe_url or "").strip()
+    pattern = re.compile(r'(\bhref\s*=\s*)(["\'])(https?://[^"\']+)\2', re.IGNORECASE)
+
+    def replace(match):
+        target = unescape(match.group(3)).strip()
+        if target == unsubscribe_url or "/unsubscribe/" in target or "/track/click/" in target:
+            return match.group(0)
+        token = create_click_token(campaign_id, recipient, step, target)
+        tracked = f"{base}/track/click/{token}"
+        quote = match.group(2)
+        return match.group(1) + quote + escape(tracked, quote=True) + quote
+
+    return pattern.sub(replace, body)
+
+
 def get_unsubscribed_map(emails=None):
     params = ()
     where = "WHERE is_unsubscribed = TRUE"
@@ -1561,6 +1661,12 @@ def get_dashboard_stats():
         GROUP BY campaign_id
         ORDER BY last_open DESC
     """)
+    click_rows = query_db("""
+        SELECT campaign_id, COUNT(*) as click_count,
+               COUNT(DISTINCT recipient) as unique_clickers, MAX(timestamp) as last_click
+        FROM clicks
+        GROUP BY campaign_id
+    """)
 
     recent_opens = query_db("""
         SELECT campaign_id, recipient, step, timestamp
@@ -1590,6 +1696,12 @@ def get_dashboard_stats():
 
         opens_for_campaign = next(
             (r["open_count"] for r in campaign_rows if r["campaign_id"] == cid), 0
+        )
+        clicks_for_campaign = next(
+            (r["click_count"] for r in click_rows if r["campaign_id"] == cid), 0
+        )
+        unique_clickers = next(
+            (r["unique_clickers"] for r in click_rows if r["campaign_id"] == cid), 0
         )
         open_rate = f"{opens_for_campaign / sent * 100:.1f}%" if sent > 0 else "—"
 
@@ -1667,6 +1779,8 @@ def get_dashboard_stats():
             "unsubscribed": unsubscribed_count,
             "undelivered": failed_count + skipped_count,
             "opens": opens_for_campaign,
+            "clicks": clicks_for_campaign,
+            "unique_clickers": unique_clickers,
             "open_rate": open_rate,
             "replied": replied_count,
             "total_steps": brief.get("total_steps", 1),
@@ -1679,6 +1793,7 @@ def get_dashboard_stats():
 
     existing_ids = {c["id"] for c in campaigns_info}
     total_opens = sum(r["open_count"] for r in campaign_rows if r["campaign_id"] in existing_ids)
+    total_clicks = sum(r["click_count"] for r in click_rows if r["campaign_id"] in existing_ids)
     avg_open_rate = f"{total_opens / total_sent * 100:.1f}%" if total_sent > 0 else "—"
     all_recent_replies.sort(key=lambda x: x["replied_at"], reverse=True)
 
@@ -1686,6 +1801,7 @@ def get_dashboard_stats():
         "total_campaigns": len(campaigns_info),
         "total_sent": total_sent,
         "total_opens": total_opens,
+        "total_clicks": total_clicks,
         "avg_open_rate": avg_open_rate,
         "campaigns": campaigns_info,
         "recent_opens": [dict(r) for r in recent_opens],
@@ -1947,6 +2063,10 @@ def get_campaign_performance():
         SELECT campaign_id, COUNT(DISTINCT recipient) as opens FROM opens GROUP BY campaign_id
     """)
     opens_map = {r["campaign_id"]: r["opens"] for r in opens_rows}
+    clicks_rows = query_db("""
+        SELECT campaign_id, COUNT(*) as clicks FROM clicks GROUP BY campaign_id
+    """)
+    clicks_map = {r["campaign_id"]: r["clicks"] for r in clicks_rows}
 
     rows = []
     for row in all_campaigns:
@@ -1956,6 +2076,7 @@ def get_campaign_performance():
 
         sent    = progress.get("sent", 0)
         opens   = opens_map.get(cid, 0)
+        clicks  = clicks_map.get(cid, 0)
         replies = sum(1 for d in progress.get("send_details", []) if d.get("replied"))
         total   = progress.get("total_recipients", 0)
 
@@ -1967,6 +2088,7 @@ def get_campaign_performance():
             "total":        total,
             "sent":         sent,
             "opens":        opens,
+            "clicks":       clicks,
             "replies":      replies,
             "open_rate":    f"{opens / sent * 100:.1f}%" if sent > 0 else "—",
             "reply_rate":   f"{replies / sent * 100:.1f}%" if sent > 0 else "—",
@@ -2493,6 +2615,34 @@ def track_pixel():
     return send_file(BytesIO(PIXEL), mimetype="image/png")
 
 
+@app.route("/track/click/<token>", methods=["GET"])
+def track_click(token):
+    """Record a signed newsletter click and redirect to its original destination."""
+    try:
+        payload = read_click_token(token)
+    except (TypeError, ValueError):
+        return "Invalid tracked link", 400
+
+    recipient = payload["recipient"]
+    domain = recipient.split("@")[-1].lower() if "@" in recipient else ""
+    if domain not in INTERNAL_DOMAINS:
+        execute_db(
+            """INSERT INTO clicks
+               (campaign_id, recipient, step, target_url, timestamp, user_agent, ip_address)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (
+                payload["campaign_id"],
+                recipient,
+                payload["step"],
+                payload["target_url"],
+                datetime.now(timezone.utc).isoformat(),
+                request.headers.get("User-Agent", ""),
+                request.remote_addr,
+            ),
+        )
+    return redirect(payload["target_url"], code=302)
+
+
 @app.route("/api/opens", methods=["GET"])
 def get_opens():
     campaign_id = request.args.get("campaign_id", "")
@@ -2525,6 +2675,12 @@ def api_metrics(campaign_id):
         (campaign_id,), one=True,
     )
     open_count = opens_row["cnt"] if opens_row else 0
+    clicks_row = query_db(
+        """SELECT COUNT(*) as cnt, COUNT(DISTINCT recipient) as unique_clickers,
+                  MAX(timestamp) as last_click
+           FROM clicks WHERE campaign_id = %s""",
+        (campaign_id,), one=True,
+    )
     total_sent = progress.get("total_recipients", 0)
     open_rate = f"{open_count / total_sent * 100:.1f}%" if total_sent > 0 else "0%"
     return jsonify({
@@ -2534,6 +2690,9 @@ def api_metrics(campaign_id):
         "created_at": brief.get("created_at", "N/A"),
         "total_sent": total_sent,
         "opens": open_count,
+        "clicks": clicks_row["cnt"] if clicks_row else 0,
+        "unique_clickers": clicks_row["unique_clickers"] if clicks_row else 0,
+        "last_click": clicks_row["last_click"] if clicks_row else None,
         "open_rate": open_rate,
         "last_open": opens_row["last_open"] if opens_row else None,
         "pending": progress.get("pending", 0),
@@ -2545,6 +2704,7 @@ def api_metrics(campaign_id):
 def delete_campaign(campaign_id):
     try:
         execute_db("DELETE FROM opens WHERE campaign_id = %s", (campaign_id,))
+        execute_db("DELETE FROM clicks WHERE campaign_id = %s", (campaign_id,))
         execute_db("DELETE FROM attachments WHERE campaign_id = %s", (campaign_id,))
         execute_db("DELETE FROM campaigns WHERE campaign_id = %s", (campaign_id,))
         flash(f"Campaign {campaign_id} deleted.", "success")
@@ -2707,6 +2867,23 @@ def campaign_detail(campaign_id):
             row["unsubscribed_at"] = preference.get("unsubscribed_at")
         else:
             row["unsubscribed_at"] = None
+    click_totals = query_db(
+        """SELECT COUNT(*) as total_clicks,
+                  COUNT(DISTINCT recipient) as unique_clickers,
+                  MAX(timestamp) as last_click
+           FROM clicks WHERE campaign_id = %s""",
+        (campaign_id,), one=True,
+    ) or {"total_clicks": 0, "unique_clickers": 0, "last_click": None}
+    link_clicks = query_db(
+        """SELECT target_url, COUNT(*) as total_clicks,
+                  COUNT(DISTINCT recipient) as unique_clickers,
+                  MAX(timestamp) as last_click
+           FROM clicks
+           WHERE campaign_id = %s
+           GROUP BY target_url
+           ORDER BY total_clicks DESC, last_click DESC""",
+        (campaign_id,),
+    )
     return render_template(
         "campaign_detail.html",
         brief=brief,
@@ -2714,6 +2891,8 @@ def campaign_detail(campaign_id):
         campaign_id=campaign_id,
         recipients=recipient_rows,
         campaign_segments=campaign_segments,
+        click_totals=dict(click_totals),
+        link_clicks=[dict(row) for row in link_clicks],
     )
 
 
