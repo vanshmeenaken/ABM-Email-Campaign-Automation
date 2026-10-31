@@ -163,17 +163,15 @@ def render_regional_newsletter(form, asset_base_url="", image_src=None):
             return f"cid:{filename}"
         return f"{base.rstrip('/')}/assets/newsletter/{filename}"
 
-    logo = asset("ken-research-logo-color.png")
+    logo = asset("regional-ken-research-logo.png")
     report_icon = asset("industry-report-icon.png")
     tagline = "GLOBAL STRATEGIC CONSULTING &amp; MARKET INTELLIGENCE"
-    glyphs = ("&#10010;", "&#8599;", "&#9638;", "&#9829;")
-
     indicator_cells = []
-    for number, (indicator, glyph) in enumerate(zip(content["indicators"], glyphs), start=1):
+    for number, indicator in enumerate(content["indicators"], start=1):
         border = "" if number == 4 else f"border-right:1px solid {RULE};"
         indicator_cells.append(f"""
           <td width="142" align="center" valign="top" style="width:142px;padding:12px 8px 10px;{border}">
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="32" height="32"><tr><td align="center" valign="middle" style="width:30px;height:30px;border:2px solid {RED};border-radius:16px;font-family:Arial,sans-serif;font-size:18px;line-height:28px;color:{RED};">{glyph}</td></tr></table>
+            <img src="{asset(f'regional-indicator-{number}.png')}" width="34" height="34" alt="" style="display:block;width:34px;height:34px;border:0;">
             <div style="padding-top:6px;font-family:Arial,Helvetica,sans-serif;font-size:9px;line-height:11px;color:{NAVY};">{_text(indicator)}</div>
           </td>""")
 
@@ -216,7 +214,7 @@ def render_regional_newsletter(form, asset_base_url="", image_src=None):
       <tr><td style="padding:14px 16px 8px;border-bottom:1px solid {RULE};">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
           <td width="2" bgcolor="{RED}" style="width:2px;background:{RED};font-size:1px;">&nbsp;</td>
-          <td valign="bottom" style="padding-left:14px;"><a href="{DEFAULT_URL}" target="_blank"><img src="{logo}" width="200" height="24" alt="Ken Research" style="display:block;width:200px;height:24px;border:0;"></a><div style="padding-top:2px;font-family:Arial,sans-serif;font-size:7px;line-height:9px;letter-spacing:.35px;color:{LIGHT_GREY};">{tagline}</div></td>
+          <td valign="bottom" style="padding-left:14px;"><a href="{DEFAULT_URL}" target="_blank"><img src="{logo}" width="200" height="32" alt="Ken Research" style="display:block;width:200px;height:32px;border:0;"></a><div style="padding-top:2px;font-family:Arial,sans-serif;font-size:7px;line-height:9px;letter-spacing:.35px;color:{LIGHT_GREY};">{tagline}</div></td>
           <td align="right" valign="bottom" style="font-family:Arial,sans-serif;"><div style="font-size:11px;line-height:14px;font-weight:700;text-transform:uppercase;color:{NAVY};">{_text(content['section_label'])}</div><div style="font-size:9px;line-height:12px;text-transform:uppercase;color:{LIGHT_GREY};">{_text(content['issue_label'])}</div></td>
         </tr></table>
       </td></tr>
@@ -247,7 +245,7 @@ def render_regional_newsletter(form, asset_base_url="", image_src=None):
         <td width="102" align="center" valign="middle"><img src="{image_src.get('report', '')}" width="86" height="112" alt="Report cover" style="display:block;width:86px;height:112px;object-fit:cover;border:0;"></td>
       </tr></table></td></tr>
 
-      <tr><td style="padding:0 32px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="536" height="34" style="width:536px;border-top:1px solid {RULE};"><tr><td valign="middle"><img src="{logo}" width="140" height="17" alt="Ken Research" style="display:block;border:0;"><div style="font-family:Arial,sans-serif;font-size:6px;line-height:7px;color:{LIGHT_GREY};">{tagline}</div></td><td align="right"><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right"><tr>{social('mailmodo-linkedin.png', content['linkedin_url'], 'LinkedIn')}{social('mailmodo-twitter.png', content['x_url'], 'X')}{social('mailmodo-youtube.png', content['youtube_url'], 'YouTube')}</tr></table></td></tr></table></td></tr>
+      <tr><td style="padding:0 32px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="536" height="40" style="width:536px;border-top:1px solid {RULE};"><tr><td valign="middle"><img src="{logo}" width="140" height="23" alt="Ken Research" style="display:block;border:0;"><div style="font-family:Arial,sans-serif;font-size:6px;line-height:7px;color:{LIGHT_GREY};">{tagline}</div></td><td align="right"><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right"><tr>{social('mailmodo-linkedin.png', content['linkedin_url'], 'LinkedIn')}{social('mailmodo-twitter.png', content['x_url'], 'X')}{social('mailmodo-youtube.png', content['youtube_url'], 'YouTube')}</tr></table></td></tr></table></td></tr>
       <tr><td height="16" align="center" valign="top" style="padding:0 32px;"><a href="{_url(content['contact_url'])}" target="_blank" style="{footer_style}">Contact Us</a>{separator}<a href="{_url(content['unsubscribe_url'])}" target="_blank" style="{footer_style}">Unsubscribe</a></td></tr>
     </table>
   </td></tr>

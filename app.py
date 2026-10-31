@@ -73,6 +73,14 @@ NEWSLETTER_ASSET_FILES = {
     "industry-arrow.png",
     "industry-report-icon.png",
     "industry-report-cover-default.png",
+    "regional-ken-research-logo.png",
+    "regional-indicator-1.png",
+    "regional-indicator-2.png",
+    "regional-indicator-3.png",
+    "regional-indicator-4.png",
+    "regional-report-cover-reference.png",
+    "regional-hero-reference.jpg",
+    "regional-insights-reference.jpg",
 }
 NEWSLETTER_INLINE_ASSET_FILES = (
     "mailmodo-hero-banner.jpg",
@@ -87,6 +95,14 @@ NEWSLETTER_INLINE_ASSET_FILES = (
     "industry-arrow.png",
     "industry-report-icon.png",
     "industry-report-cover-default.png",
+    "regional-ken-research-logo.png",
+    "regional-indicator-1.png",
+    "regional-indicator-2.png",
+    "regional-indicator-3.png",
+    "regional-indicator-4.png",
+    "regional-report-cover-reference.png",
+    "regional-hero-reference.jpg",
+    "regional-insights-reference.jpg",
 )
 
 # 1x1 transparent PNG pixel

@@ -81,7 +81,9 @@ class RegionalNewsletterTests(unittest.TestCase):
         self.assertIn("Regional Focus: India", html)
         self.assertIn("Key Insights", html)
         self.assertIn("Final File Report", html)
-        self.assertIn("cid:ken-research-logo-color.png", html)
+        self.assertIn("cid:regional-ken-research-logo.png", html)
+        for number in range(1, 5):
+            self.assertIn(f"cid:regional-indicator-{number}.png", html)
         self.assertIn("cid:mailmodo-linkedin.png", html)
         self.assertIn("cid:mailmodo-twitter.png", html)
         self.assertIn("cid:mailmodo-youtube.png", html)
