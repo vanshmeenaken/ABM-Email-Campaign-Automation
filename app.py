@@ -30,6 +30,14 @@ from newsletter_industry import (
     render_industry_newsletter,
     validate_industry_content,
 )
+from newsletter_regional import (
+    IMAGE_FILES as REGIONAL_IMAGE_FILES,
+    REGIONAL_SLOTS,
+    prepare_regional_image,
+    regional_content,
+    render_regional_newsletter,
+    validate_regional_content,
+)
 from unsubscribe import (
     InvalidUnsubscribeToken,
     create_unsubscribe_token,
@@ -2256,7 +2264,7 @@ def send_submit():
             return redirect(url_for("send_form"))
 
     sequences = []
-    industry_attachments = []
+    newsletter_attachments = []
     subject_1 = request.form.get("subject_1", "").strip() or "Ken Research Outreach"
     if template_mode == "kensight_newsletter":
         newsletter_template = request.form.get("newsletter_template", "overview").strip() or "overview"
@@ -2280,12 +2288,32 @@ def send_submit():
         except Exception as e:
             flash(f"Could not prepare the newsletter images: {e}", "error")
             return redirect(url_for("send_form"))
-        industry_attachments = [(INDUSTRY_IMAGE_FILES[slot], b64) for slot, b64 in image_b64.items()]
+        newsletter_attachments = [(INDUSTRY_IMAGE_FILES[slot], b64) for slot, b64 in image_b64.items()]
         image_src = {slot: f"cid:{INDUSTRY_IMAGE_FILES[slot]}" for slot in image_b64}
         if cover_b64:
-            industry_attachments.append((INDUSTRY_IMAGE_FILES["report"], cover_b64))
+            newsletter_attachments.append((INDUSTRY_IMAGE_FILES["report"], cover_b64))
             image_src["report"] = f"cid:{INDUSTRY_IMAGE_FILES['report']}"
         body_1 = render_industry_newsletter(industry_form, "cid", image_src, has_report_cover=bool(cover_b64))
+        if not request.form.get("subject_1", "").strip():
+            subject_1 = content["hero_title"]
+    elif template_mode == "regional_market_outlook":
+        regional_form = request.form.to_dict(flat=True)
+        regional_form["reg_unsubscribe_url"] = UNSUBSCRIBE_URL_PLACEHOLDER
+        content = regional_content(regional_form)
+        problems = validate_regional_content(content)
+        if problems:
+            flash(" ".join(problems), "error")
+            return redirect(url_for("send_form"))
+        try:
+            image_b64 = _resolve_regional_images(request.form)
+        except Exception as e:
+            flash(f"Could not prepare the newsletter images: {e}", "error")
+            return redirect(url_for("send_form"))
+        newsletter_attachments = [
+            (REGIONAL_IMAGE_FILES[slot], b64) for slot, b64 in image_b64.items()
+        ]
+        image_src = {slot: f"cid:{REGIONAL_IMAGE_FILES[slot]}" for slot in image_b64}
+        body_1 = render_regional_newsletter(regional_form, "cid", image_src)
         if not request.form.get("subject_1", "").strip():
             subject_1 = content["hero_title"]
     else:
@@ -2334,7 +2362,7 @@ def send_submit():
                 except Exception as e:
                     print(f"[ATTACH] Warning: could not save {f.filename}: {e}")
 
-    for filename, b64 in industry_attachments:
+    for filename, b64 in newsletter_attachments:
         try:
             save_attachment(campaign_id, 1, filename, "image/jpeg", b64)
         except Exception as e:
@@ -2429,6 +2457,26 @@ def _resolve_industry_images(form, content):
             "Placeholder images are never sent."
         )
     return {slot: have[slot]["data_b64"] for slot in image_gen.SLOTS}
+
+
+def _resolve_regional_images(form):
+    """Return the three reviewed Regional Market Outlook images."""
+    token = (form.get("reg_image_token") or "").strip()
+    if not token:
+        raise RuntimeError("upload and review all three regional newsletter images before launch.")
+    rows = query_db(
+        "SELECT slot, data_b64, placeholder FROM generated_images WHERE token = %s", (token,)
+    )
+    have = {row["slot"]: row for row in rows}
+    missing = [slot for slot in REGIONAL_SLOTS if slot not in have]
+    if missing:
+        raise RuntimeError(
+            "upload and review all three regional newsletter images before launch. "
+            f"Missing: {', '.join(missing)}."
+        )
+    if any(have[slot]["placeholder"] for slot in REGIONAL_SLOTS):
+        raise RuntimeError("Placeholder images are never sent.")
+    return {slot: have[slot]["data_b64"] for slot in REGIONAL_SLOTS}
 
 
 def _generate_industry_images_job(token, specs, industry, slots):
@@ -2590,6 +2638,73 @@ def industry_preview():
     return Response(
         f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
         f'<title>Newsletter preview</title></head><body style="margin:0">{html}</body></html>',
+        mimetype="text/html",
+    )
+
+
+@app.route("/api/newsletter/regional-images/upload", methods=["POST"])
+def api_regional_image_upload():
+    """Validate, normalize, and persist Regional Market Outlook images."""
+    import uuid
+
+    content = regional_content(request.form)
+    problems = validate_regional_content(content)
+    if problems:
+        return jsonify({"error": " ".join(problems)}), 400
+
+    token = (request.form.get("reg_image_token") or "").strip() or uuid.uuid4().hex
+    results = {}
+    for slot in REGIONAL_SLOTS:
+        upload = request.files.get(f"reg_upload_{slot}")
+        if not upload or not upload.filename:
+            continue
+        try:
+            results[slot] = (prepare_regional_image(slot, upload.read()), False)
+        except ValueError as exc:
+            return jsonify({"error": f"{slot}: {exc}"}), 400
+
+    if not results:
+        return jsonify({"error": "Choose at least one regional newsletter image to upload."}), 400
+
+    _store_generated_images(token, results)
+    images = _stored_image_payload(token)
+    missing = [slot for slot in REGIONAL_SLOTS if slot not in images]
+    return jsonify({
+        "token": token,
+        "status": "complete" if not missing else "partial",
+        "images": images,
+        "missing": missing,
+        "provider": "Dashboard upload",
+    })
+
+
+@app.route("/newsletter/regional-preview", methods=["POST"])
+def regional_preview():
+    """Render the Regional Market Outlook exactly as it will be sent."""
+    content = regional_content(request.form)
+    problems = validate_regional_content(content)
+    if problems:
+        return jsonify({"error": " ".join(problems)}), 400
+    token = (request.form.get("reg_image_token") or "").strip()
+    image_src = {}
+    if token:
+        for row in query_db(
+            "SELECT slot FROM generated_images WHERE token = %s AND placeholder = FALSE", (token,)
+        ):
+            if row["slot"] in REGIONAL_SLOTS:
+                image_src[row["slot"]] = url_for(
+                    "generated_image", token=token, slot=row["slot"], _external=True
+                )
+    missing = [slot for slot in REGIONAL_SLOTS if slot not in image_src]
+    if missing:
+        return jsonify({
+            "error": "Upload all three regional newsletter images before opening the preview. "
+                     f"Missing: {', '.join(missing)}."
+        }), 400
+    html = render_regional_newsletter(request.form, request.host_url.rstrip("/"), image_src)
+    return Response(
+        f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>Regional Market Outlook preview</title></head><body style="margin:0">{html}</body></html>',
         mimetype="text/html",
     )
 

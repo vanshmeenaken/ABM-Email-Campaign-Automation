@@ -1,0 +1,147 @@
+import os
+import unittest
+from io import BytesIO
+from unittest.mock import patch
+
+from PIL import Image
+
+
+os.environ["SKIP_BACKGROUND_WORKERS"] = "1"
+os.environ.setdefault("DATABASE_URL", "postgresql://unused")
+
+with patch("psycopg2.connect"):
+    import app as webapp
+
+from newsletter_regional import (
+    CANVAS_WIDTH,
+    IMAGE_FILES,
+    REGIONAL_SLOTS,
+    SLOT_SIZES,
+    prepare_regional_image,
+    regional_content,
+    render_regional_newsletter,
+    validate_regional_content,
+)
+
+
+def complete_form():
+    form = {
+        "reg_section_label": "Regional Market Outlook",
+        "reg_issue_label": "Oct 2026 | Issue 01",
+        "reg_region": "India",
+        "reg_hero_title": "India's Healthcare Sector Enters a New Growth Phase",
+        "reg_hero_body": "Government support and digital adoption are reshaping healthcare.",
+        "reg_hero_cta_text": "Read the Full Perspective",
+        "reg_hero_cta_url": "https://example.com/hero",
+        "reg_insights_heading": "Key Insights",
+        "reg_report_label": "Final File Report",
+        "reg_report_title": "India Healthcare Market Outlook, 2026-2032",
+        "reg_report_body": "Detailed insights on market size and competition.",
+        "reg_report_cta_text": "View Report",
+        "reg_report_cta_url": "https://example.com/report",
+    }
+    for number in range(1, 5):
+        form[f"reg_indicator{number}"] = f"Market indicator {number}"
+    for number in range(1, 4):
+        form[f"reg_insight{number}_title"] = f"Insight {number}"
+        form[f"reg_insight{number}_body"] = f"Insight summary {number}"
+        form[f"reg_insight{number}_url"] = f"https://example.com/insight-{number}"
+    return form
+
+
+def png_upload(width=900, height=700):
+    buffer = BytesIO()
+    Image.new("RGB", (width, height), (34, 92, 148)).save(buffer, "PNG")
+    buffer.seek(0)
+    return buffer
+
+
+class RegionalNewsletterTests(unittest.TestCase):
+    def setUp(self):
+        webapp.app.config.update(TESTING=True)
+        self.client = webapp.app.test_client()
+
+    def test_content_validates_and_missing_fields_are_reported(self):
+        content = regional_content(complete_form())
+        self.assertEqual([], validate_regional_content(content))
+
+        form = complete_form()
+        form["reg_hero_title"] = ""
+        form["reg_insight2_body"] = ""
+        problems = validate_regional_content(regional_content(form))
+        self.assertIn("Hero headline is required.", problems)
+        self.assertIn("Insight 2 summary is required.", problems)
+
+    def test_renderer_matches_regional_structure_and_real_brand_assets(self):
+        sources = {slot: f"cid:{filename}" for slot, filename in IMAGE_FILES.items()}
+        html = render_regional_newsletter(complete_form(), "cid", sources)
+
+        self.assertEqual(600, CANVAS_WIDTH)
+        self.assertIn('width="600"', html)
+        self.assertIn("Regional Focus: India", html)
+        self.assertIn("Key Insights", html)
+        self.assertIn("Final File Report", html)
+        self.assertIn("cid:ken-research-logo-color.png", html)
+        self.assertIn("cid:mailmodo-linkedin.png", html)
+        self.assertIn("cid:mailmodo-twitter.png", html)
+        self.assertIn("cid:mailmodo-youtube.png", html)
+        self.assertIn("cid:regional-hero.jpg", html)
+        self.assertIn("cid:regional-insights.jpg", html)
+        self.assertIn("cid:regional-report-cover.jpg", html)
+        self.assertNotIn("Manage Preferences", html)
+
+    def test_uploaded_images_are_normalized_to_each_regional_slot(self):
+        for slot in REGIONAL_SLOTS:
+            result = prepare_regional_image(slot, png_upload().getvalue())
+            with Image.open(BytesIO(result)) as output:
+                self.assertEqual(SLOT_SIZES[slot], output.size)
+                self.assertEqual("JPEG", output.format)
+
+    def test_dashboard_exposes_regional_builder(self):
+        response = self.client.get("/send")
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b"Regional Market Outlook", response.data)
+        self.assertIn(b'reg_upload_hero', response.data)
+        self.assertIn(b'reg_upload_insights', response.data)
+        self.assertIn(b'reg_upload_report', response.data)
+        self.assertNotIn(b"Manage Preferences", response.data)
+
+    @patch.object(webapp, "_stored_image_payload")
+    @patch.object(webapp, "_store_generated_images")
+    def test_regional_upload_uses_shared_image_storage(self, store, payload):
+        payload.return_value = {
+            "hero": {"url": "/generated/token/hero?v=1", "placeholder": False}
+        }
+        form = complete_form()
+        form["reg_image_token"] = "token"
+        form["reg_upload_hero"] = (png_upload(), "hero.png")
+
+        response = self.client.post(
+            "/api/newsletter/regional-images/upload",
+            data=form,
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("partial", response.get_json()["status"])
+        self.assertEqual(["insights", "report"], response.get_json()["missing"])
+        stored = store.call_args.args[1]
+        self.assertEqual({"hero"}, set(stored))
+        self.assertFalse(stored["hero"][1])
+
+    @patch.object(webapp, "query_db")
+    def test_preview_uses_all_stored_regional_images(self, query_db):
+        query_db.return_value = [{"slot": slot} for slot in REGIONAL_SLOTS]
+        form = complete_form()
+        form["reg_image_token"] = "token"
+
+        response = self.client.post("/newsletter/regional-preview", data=form)
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b"Regional Market Outlook preview", response.data)
+        self.assertIn(b"India&#x27;s Healthcare Sector", response.data)
+
+
+if __name__ == "__main__":
+    unittest.main()
