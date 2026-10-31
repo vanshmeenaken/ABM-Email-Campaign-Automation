@@ -1662,8 +1662,8 @@ def get_dashboard_stats():
         ORDER BY last_open DESC
     """)
     click_rows = query_db("""
-        SELECT campaign_id, COUNT(*) as click_count,
-               COUNT(DISTINCT recipient) as unique_clickers, MAX(timestamp) as last_click
+        SELECT campaign_id, COUNT(DISTINCT recipient) as click_count,
+               MAX(timestamp) as last_click
         FROM clicks
         GROUP BY campaign_id
     """)
@@ -1699,9 +1699,6 @@ def get_dashboard_stats():
         )
         clicks_for_campaign = next(
             (r["click_count"] for r in click_rows if r["campaign_id"] == cid), 0
-        )
-        unique_clickers = next(
-            (r["unique_clickers"] for r in click_rows if r["campaign_id"] == cid), 0
         )
         open_rate = f"{opens_for_campaign / sent * 100:.1f}%" if sent > 0 else "—"
 
@@ -1780,7 +1777,7 @@ def get_dashboard_stats():
             "undelivered": failed_count + skipped_count,
             "opens": opens_for_campaign,
             "clicks": clicks_for_campaign,
-            "unique_clickers": unique_clickers,
+            "unique_clickers": clicks_for_campaign,
             "open_rate": open_rate,
             "replied": replied_count,
             "total_steps": brief.get("total_steps", 1),
@@ -2064,7 +2061,9 @@ def get_campaign_performance():
     """)
     opens_map = {r["campaign_id"]: r["opens"] for r in opens_rows}
     clicks_rows = query_db("""
-        SELECT campaign_id, COUNT(*) as clicks FROM clicks GROUP BY campaign_id
+        SELECT campaign_id, COUNT(DISTINCT recipient) as clicks
+        FROM clicks
+        GROUP BY campaign_id
     """)
     clicks_map = {r["campaign_id"]: r["clicks"] for r in clicks_rows}
 
@@ -2676,7 +2675,7 @@ def api_metrics(campaign_id):
     )
     open_count = opens_row["cnt"] if opens_row else 0
     clicks_row = query_db(
-        """SELECT COUNT(*) as cnt, COUNT(DISTINCT recipient) as unique_clickers,
+        """SELECT COUNT(DISTINCT recipient) as cnt,
                   MAX(timestamp) as last_click
            FROM clicks WHERE campaign_id = %s""",
         (campaign_id,), one=True,
@@ -2691,7 +2690,7 @@ def api_metrics(campaign_id):
         "total_sent": total_sent,
         "opens": open_count,
         "clicks": clicks_row["cnt"] if clicks_row else 0,
-        "unique_clickers": clicks_row["unique_clickers"] if clicks_row else 0,
+        "unique_clickers": clicks_row["cnt"] if clicks_row else 0,
         "last_click": clicks_row["last_click"] if clicks_row else None,
         "open_rate": open_rate,
         "last_open": opens_row["last_open"] if opens_row else None,
@@ -2868,20 +2867,18 @@ def campaign_detail(campaign_id):
         else:
             row["unsubscribed_at"] = None
     click_totals = query_db(
-        """SELECT COUNT(*) as total_clicks,
-                  COUNT(DISTINCT recipient) as unique_clickers,
+        """SELECT COUNT(DISTINCT recipient) as unique_clicks,
                   MAX(timestamp) as last_click
            FROM clicks WHERE campaign_id = %s""",
         (campaign_id,), one=True,
-    ) or {"total_clicks": 0, "unique_clickers": 0, "last_click": None}
+    ) or {"unique_clicks": 0, "last_click": None}
     link_clicks = query_db(
-        """SELECT target_url, COUNT(*) as total_clicks,
-                  COUNT(DISTINCT recipient) as unique_clickers,
+        """SELECT target_url, COUNT(DISTINCT recipient) as unique_clicks,
                   MAX(timestamp) as last_click
            FROM clicks
            WHERE campaign_id = %s
            GROUP BY target_url
-           ORDER BY total_clicks DESC, last_click DESC""",
+           ORDER BY unique_clicks DESC, last_click DESC""",
         (campaign_id,),
     )
     return render_template(

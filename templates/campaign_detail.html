@@ -108,16 +108,12 @@
   <div class="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4 flex-wrap">
     <div>
       <h3 class="font-semibold text-gray-800">Link Clicks</h3>
-      <p class="text-xs text-gray-400 mt-0.5">Tracked clicks by destination for emails sent with click tracking enabled</p>
+      <p class="text-xs text-gray-400 mt-0.5">Unique recipient clicks by destination for emails sent with click tracking enabled</p>
     </div>
     <div class="flex gap-5 text-right">
       <div>
-        <p class="text-xs uppercase tracking-wide text-gray-400">Total clicks</p>
-        <p class="text-xl font-bold text-indigo-600">{{ click_totals.total_clicks or 0 }}</p>
-      </div>
-      <div>
-        <p class="text-xs uppercase tracking-wide text-gray-400">Unique clickers</p>
-        <p class="text-xl font-bold text-blue-600">{{ click_totals.unique_clickers or 0 }}</p>
+        <p class="text-xs uppercase tracking-wide text-gray-400">Unique clicks</p>
+        <p class="text-xl font-bold text-indigo-600">{{ click_totals.unique_clicks or 0 }}</p>
       </div>
     </div>
   </div>
@@ -127,8 +123,7 @@
       <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
         <tr>
           <th class="px-6 py-3 text-left font-medium">Destination link</th>
-          <th class="px-6 py-3 text-center font-medium">Total clicks</th>
-          <th class="px-6 py-3 text-center font-medium">Unique clickers</th>
+          <th class="px-6 py-3 text-center font-medium">Unique clicks</th>
           <th class="px-6 py-3 text-left font-medium">Last click</th>
         </tr>
       </thead>
@@ -141,8 +136,7 @@
               {{ link.target_url }}
             </a>
           </td>
-          <td class="px-6 py-3 text-center font-semibold text-indigo-600">{{ link.total_clicks }}</td>
-          <td class="px-6 py-3 text-center text-blue-600">{{ link.unique_clickers }}</td>
+          <td class="px-6 py-3 text-center font-semibold text-indigo-600">{{ link.unique_clicks }}</td>
           <td class="px-6 py-3 text-xs text-gray-500 whitespace-nowrap">
             {% if link.last_click %}{{ link.last_click | friendly_dt }}{% else %}&mdash;{% endif %}
           </td>

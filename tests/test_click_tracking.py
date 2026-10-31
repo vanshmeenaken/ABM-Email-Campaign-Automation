@@ -1,6 +1,7 @@
 import os
 import re
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 
@@ -67,6 +68,40 @@ class ClickTrackingTests(unittest.TestCase):
         response = self.client.get("/track/click/not-a-valid-token")
 
         self.assertEqual(400, response.status_code)
+
+    @patch.object(webapp, "_load_progress", return_value={"total_recipients": 386})
+    @patch.object(webapp, "_load_brief", return_value={"name": "Industry Intelligence"})
+    @patch.object(webapp, "query_db")
+    def test_metrics_api_reports_unique_recipient_clicks(
+        self, query_db, _load_brief, _load_progress
+    ):
+        def results(sql, _params=(), one=False):
+            if "FROM opens" in sql:
+                return {"cnt": 232, "last_open": "2026-10-30T11:50:42"}
+            if "FROM clicks" in sql:
+                self.assertIn("COUNT(DISTINCT recipient) as cnt", sql)
+                self.assertNotIn("COUNT(*)", sql)
+                return {"cnt": 24, "last_click": "2026-10-30T11:29:44"}
+            self.fail(f"Unexpected query: {sql}")
+
+        query_db.side_effect = results
+
+        response = self.client.get("/api/metrics/campaign-1")
+
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertEqual(24, payload["clicks"])
+        self.assertEqual(24, payload["unique_clickers"])
+
+    def test_click_dashboard_only_labels_unique_clicks(self):
+        templates = Path(webapp.__file__).with_name("templates")
+        dashboard = (templates / "dashboard.html").read_text(encoding="utf-8")
+        campaign_detail = (templates / "campaign_detail.html").read_text(encoding="utf-8")
+
+        self.assertIn("Unique Clicks", dashboard)
+        self.assertNotIn("Total Clicks", dashboard)
+        self.assertIn("Unique clicks", campaign_detail)
+        self.assertNotIn("Total clicks", campaign_detail)
 
 
 if __name__ == "__main__":
