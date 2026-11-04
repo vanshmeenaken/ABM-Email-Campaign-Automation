@@ -20,6 +20,7 @@ from newsletter_regional import (
     prepare_regional_image,
     regional_content,
     render_regional_newsletter,
+    resolved_regional_links,
     validate_regional_content,
 )
 
@@ -90,7 +91,39 @@ class RegionalNewsletterTests(unittest.TestCase):
         self.assertIn("cid:regional-hero.jpg", html)
         self.assertIn("cid:regional-insights.jpg", html)
         self.assertIn("cid:regional-report-cover.jpg", html)
+        self.assertIn("https://example.com/hero?utm_source=newsletter&amp;utm_medium=email&amp;utm_campaign=regional_market_outlook", html)
         self.assertNotIn("Manage Preferences", html)
+
+    def test_final_links_append_missing_utms_and_preserve_existing_values(self):
+        form = complete_form()
+        form.update({
+            "reg_utm_source": "regional-team",
+            "reg_utm_medium": "email",
+            "reg_utm_campaign": "india-healthcare-october",
+            "reg_hero_cta_url": "https://example.com/hero?utm_source=editor&ref=dashboard",
+            "reg_brand_url": "https://example.com/brand",
+        })
+
+        links = resolved_regional_links(regional_content(form))
+
+        self.assertIn("utm_source=editor", links["Hero button"])
+        self.assertIn("ref=dashboard", links["Hero button"])
+        self.assertIn("utm_medium=email", links["Hero button"])
+        self.assertIn("utm_campaign=india-healthcare-october", links["Hero button"])
+        self.assertNotIn("utm_source=regional-team", links["Hero button"])
+        self.assertIn("utm_source=regional-team", links["Header logo"])
+
+    def test_content_links_reject_missing_invalid_and_generic_homepage_urls(self):
+        form = complete_form()
+        form["reg_hero_cta_url"] = "https://www.kenresearch.com?utm_source=test"
+        form["reg_insight2_url"] = "not-a-url"
+        form["reg_report_cta_url"] = ""
+
+        problems = validate_regional_content(regional_content(form))
+
+        self.assertIn("Hero button link cannot use the generic Ken Research homepage.", problems)
+        self.assertIn("Insight 2 link must be a complete http:// or https:// URL.", problems)
+        self.assertIn("Report button link must be a complete http:// or https:// URL.", problems)
 
     def test_uploaded_images_are_normalized_to_each_regional_slot(self):
         for slot in REGIONAL_SLOTS:
@@ -107,7 +140,23 @@ class RegionalNewsletterTests(unittest.TestCase):
         self.assertIn(b'reg_upload_hero', response.data)
         self.assertIn(b'reg_upload_insights', response.data)
         self.assertIn(b'reg_upload_report', response.data)
+        self.assertIn(b"Final link review", response.data)
+        self.assertIn(b'reg_brand_url', response.data)
+        self.assertNotIn(b'name="tracker_url"', response.data)
         self.assertNotIn(b"Manage Preferences", response.data)
+
+    def test_final_link_review_api_returns_exact_direct_urls(self):
+        form = complete_form()
+        response = self.client.post("/api/newsletter/regional-links", data=form)
+
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertFalse(payload["click_tracking"])
+        self.assertEqual([], payload["errors"])
+        self.assertEqual(
+            "https://example.com/report?utm_source=newsletter&utm_medium=email&utm_campaign=regional_market_outlook",
+            payload["links"]["Report button"],
+        )
 
     @patch.object(webapp, "_stored_image_payload")
     @patch.object(webapp, "_store_generated_images")

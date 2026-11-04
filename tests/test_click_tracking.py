@@ -49,6 +49,30 @@ class ClickTrackingTests(unittest.TestCase):
         self.assertIn(f'href="{unsubscribe_url}"', result)
         self.assertIn('href="mailto:team@example.com"', result)
 
+    def test_sequence_can_keep_direct_utm_links_for_regional_template(self):
+        body = '<a href="https://example.com/report?utm_source=newsletter">Report</a>'
+
+        direct = webapp.apply_sequence_click_tracking(
+            body,
+            {"track_clicks": False},
+            "https://dashboard.example.com",
+            "campaign-1",
+            "reader@example.com",
+            1,
+        )
+        tracked = webapp.apply_sequence_click_tracking(
+            body,
+            {},
+            "https://dashboard.example.com",
+            "campaign-1",
+            "reader@example.com",
+            1,
+        )
+
+        self.assertEqual(body, direct)
+        self.assertNotIn("/track/click/", direct)
+        self.assertIn("/track/click/", tracked)
+
     @patch.object(webapp, "execute_db")
     def test_click_route_records_event_and_redirects(self, execute_db):
         target = "https://example.com/report"

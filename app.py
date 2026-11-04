@@ -36,6 +36,7 @@ from newsletter_regional import (
     prepare_regional_image,
     regional_content,
     render_regional_newsletter,
+    resolved_regional_links,
     validate_regional_content,
 )
 from unsubscribe import (
@@ -1148,12 +1149,8 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                     p_body = plain_to_html(personalize(body, first_name, company, designation))
                     unsubscribe_url = build_unsubscribe_url(email, campaign_id, tracker_url)
                     p_body = apply_unsubscribe_url(p_body, unsubscribe_url)
-                    p_body = apply_click_tracking(
-                        p_body,
-                        tracker_url,
-                        campaign_id,
-                        email,
-                        step_num,
+                    p_body = apply_sequence_click_tracking(
+                        p_body, seq, tracker_url, campaign_id, email, step_num,
                         unsubscribe_url=unsubscribe_url,
                     )
                     graph_atts = newsletter_inline_attachments(p_body)
@@ -1291,9 +1288,7 @@ def create_bulk_campaign(campaign_id, campaign_name, account_num, recipients, se
         c = conn.cursor()
         c.execute(
             """INSERT INTO campaigns (campaign_id, brief, progress)
-               VALUES (%s, %s, %s)
-               ON CONFLICT (campaign_id) DO UPDATE
-               SET brief = EXCLUDED.brief, progress = EXCLUDED.progress""",
+               VALUES (%s, %s, %s)""",
             (campaign_id, json.dumps(brief), json.dumps(progress)),
         )
         conn.commit()
@@ -1553,6 +1548,16 @@ def apply_click_tracking(body, tracker_url, campaign_id, recipient, step, unsubs
         return match.group(1) + quote + escape(tracked, quote=True) + quote
 
     return pattern.sub(replace, body)
+
+
+def apply_sequence_click_tracking(body, sequence, tracker_url, campaign_id, recipient, step,
+                                  unsubscribe_url=""):
+    """Honor the click-link policy stored with the launched campaign sequence."""
+    if not sequence.get("track_clicks", True):
+        return body
+    return apply_click_tracking(
+        body, tracker_url, campaign_id, recipient, step, unsubscribe_url=unsubscribe_url
+    )
 
 
 def get_unsubscribed_map(emails=None):
@@ -2253,7 +2258,7 @@ def send_submit():
     recipients_raw = request.form.get("recipients", "").strip()
     recipients_file = request.files.get("recipients_file")
     campaign_id = request.form.get("campaign_id", "").strip() or None
-    tracker_url = request.form.get("tracker_url", "http://localhost:5000").strip()
+    tracker_url = get_tracker_url()
     template_mode = request.form.get("template_mode", "custom").strip() or "custom"
 
     if not account_num or account_num not in ACCOUNTS:
@@ -2337,7 +2342,14 @@ def send_submit():
             f"<p>This is an outreach email from Ken Research.</p>"
             f"<p>Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"
         )
-    sequences.append({"step": 1, "delay_days": 0, "subject": subject_1, "body": body_1})
+    track_clicks = template_mode != "regional_market_outlook"
+    sequences.append({
+        "step": 1,
+        "delay_days": 0,
+        "subject": subject_1,
+        "body": body_1,
+        "track_clicks": track_clicks,
+    })
 
     for step_num in [2, 3]:
         subj = request.form.get(f"subject_{step_num}", "").strip()
@@ -2357,10 +2369,19 @@ def send_submit():
                 "delay_minutes": delay_minutes,
                 "subject": subj or subject_1,
                 "body": bod or body_1,
+                "track_clicks": track_clicks,
             })
 
     if not campaign_id:
         campaign_id = f"camp_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    if _load_brief(campaign_id):
+        flash(
+            "That Campaign ID already exists. Launched campaigns are locked to their original "
+            "content and links; use a new Campaign ID for a corrected send.",
+            "error",
+        )
+        return redirect(url_for("send_form"))
 
     # Save uploaded attachments per step
     for step_num in [1, 2, 3]:
@@ -2692,6 +2713,18 @@ def api_regional_image_upload():
         "missing": missing,
         "provider": "Dashboard upload",
     })
+
+
+@app.route("/api/newsletter/regional-links", methods=["POST"])
+def api_regional_links():
+    """Return the exact direct links that will appear in the sent newsletter."""
+    content = regional_content(request.form)
+    problems = validate_regional_content(content)
+    return jsonify({
+        "links": resolved_regional_links(content),
+        "errors": problems,
+        "click_tracking": False,
+    }), (400 if problems else 200)
 
 
 @app.route("/newsletter/regional-preview", methods=["POST"])

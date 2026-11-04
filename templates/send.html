@@ -95,6 +95,7 @@
                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-800
                         placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500
                         focus:border-transparent shadow-sm font-mono" />
+          <p class="text-xs text-amber-700 mt-1">A launched Campaign ID cannot be overwritten. Use a new ID when correcting content or links.</p>
         </div>
 
         <div>
@@ -327,7 +328,7 @@
 
         <div id="regional_builder" class="hidden space-y-6">
           <div class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-900">
-            Build the Regional Market Outlook and upload its hero, key-insights and report-cover images. Preview and sending use the same campaign, unsubscribe and click-tracking flow as Industry Intelligence.
+            Build the Regional Market Outlook and upload its hero, key-insights and report-cover images. Sent links remain direct and show their final UTM URL on hover. Redirect-based dashboard click tracking is disabled for this template.
           </div>
 
           <div class="grid gap-4 md:grid-cols-3">
@@ -337,12 +338,23 @@
           </div>
 
           <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Brand destination and UTM settings</h4>
+            <input name="reg_brand_url" type="url" value="https://www.kenresearch.com" aria-label="Header logo destination" placeholder="Header logo destination" class="{{ ind_input }}" />
+            <div class="grid gap-3 md:grid-cols-3">
+              <input name="reg_utm_source" type="text" value="newsletter" aria-label="UTM source" placeholder="utm_source" class="{{ ind_input }}" />
+              <input name="reg_utm_medium" type="text" value="email" aria-label="UTM medium" placeholder="utm_medium" class="{{ ind_input }}" />
+              <input name="reg_utm_campaign" type="text" value="regional_market_outlook" aria-label="UTM campaign" placeholder="utm_campaign" class="{{ ind_input }}" />
+            </div>
+            <p class="text-xs text-gray-500">These values are added only when a pasted URL does not already contain that UTM parameter.</p>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
             <h4 class="text-sm font-semibold text-gray-800">Hero story</h4>
             <textarea name="reg_hero_title" rows="2" class="{{ ind_input }} resize-y">India's Healthcare Sector Enters a New Growth Phase</textarea>
             <textarea name="reg_hero_body" rows="4" class="{{ ind_input }} resize-y">Government support, rising insurance coverage, digital health adoption and capacity expansion are reshaping India's healthcare landscape. Here are the key developments and what they mean for businesses.</textarea>
             <div class="grid gap-3 md:grid-cols-2">
               <input name="reg_hero_cta_text" type="text" value="Read the Full Perspective" class="{{ ind_input }}" />
-              <input name="reg_hero_cta_url" type="url" value="https://www.kenresearch.com" class="{{ ind_input }}" />
+              <input name="reg_hero_cta_url" type="url" value="" placeholder="https://www.kenresearch.com/your-regional-article" aria-label="Hero button destination" class="{{ ind_input }}" />
             </div>
           </div>
 
@@ -369,7 +381,7 @@
               <div class="text-xs font-semibold text-gray-600">Insight {{ n }}</div>
               <div class="grid gap-2 md:grid-cols-2">
                 <input name="reg_insight{{ n }}_title" type="text" value="{{ title }}" class="{{ ind_input }}" />
-                <input name="reg_insight{{ n }}_url" type="url" value="https://www.kenresearch.com" class="{{ ind_input }}" />
+                <input name="reg_insight{{ n }}_url" type="url" value="" placeholder="https://www.kenresearch.com/insight-{{ n }}" aria-label="Insight {{ n }} destination" class="{{ ind_input }}" />
               </div>
               <textarea name="reg_insight{{ n }}_body" rows="4" class="{{ ind_input }} resize-y">{{ body }}</textarea>
             </div>
@@ -385,8 +397,19 @@
             <textarea name="reg_report_body" rows="3" class="{{ ind_input }} resize-y">Detailed insights on market size, segmentation, competitive landscape and 7-year outlook.</textarea>
             <div class="grid gap-3 md:grid-cols-2">
               <input name="reg_report_cta_text" type="text" value="View Report" class="{{ ind_input }}" />
-              <input name="reg_report_cta_url" type="url" value="https://www.kenresearch.com" class="{{ ind_input }}" />
+              <input name="reg_report_cta_url" type="url" value="" placeholder="https://www.kenresearch.com/report" aria-label="Report button destination" class="{{ ind_input }}" />
             </div>
+          </div>
+
+          <div class="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h4 class="text-sm font-semibold text-gray-800">Final link review</h4>
+                <p class="text-xs text-gray-600 mt-1">All content links must be complete URLs. The generic Ken Research homepage is rejected for hero, insights and report links.</p>
+              </div>
+              <button type="button" onclick="reviewRegionalLinks()" class="inline-flex items-center bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-2 rounded-lg">Review final links</button>
+            </div>
+            <div id="reg_link_review" class="text-xs text-gray-500">Review before previewing or launching the campaign.</div>
           </div>
 
           <div class="rounded-lg border border-gray-200 p-4 space-y-3">
@@ -882,7 +905,6 @@ Ken Research Team</textarea>
           A tracking pixel is embedded for open-rate tracking.
         </span>
       </div>
-      <input type="hidden" name="tracker_url" value="{{ tracker_url }}" />
       <button type="submit"
               class="w-full inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700
                      text-white font-semibold text-sm px-6 py-3 rounded-lg transition shadow-sm">
@@ -1087,6 +1109,50 @@ function invalidateRegionalImages() {
   status.className = 'text-xs text-amber-700';
 }
 
+async function reviewRegionalLinks() {
+  const panel = document.getElementById('reg_link_review');
+  panel.textContent = 'Checking the exact sent URLs...';
+  panel.className = 'text-xs text-gray-500';
+  try {
+    const res = await fetch('/api/newsletter/regional-links', {
+      method: 'POST',
+      body: regionalFormData()
+    });
+    const data = await readDashboardJson(res, 'The final link review');
+    if (!res.ok) {
+      panel.textContent = (data.errors || [data.error || 'Correct the invalid links.']).join(' ');
+      panel.className = 'text-xs text-red-700';
+      return false;
+    }
+    const rows = Object.entries(data.links).map(([label, url]) =>
+      '<tr class="border-t border-amber-200"><td class="py-2 pr-3 font-semibold align-top whitespace-nowrap">' +
+      escapeRegionalReview(label) + '</td><td class="py-2 break-all"><a class="text-blue-700 hover:underline" target="_blank" rel="noopener" href="' +
+      escapeRegionalReview(url) + '">' + escapeRegionalReview(url) + '</a></td></tr>'
+    ).join('');
+    panel.innerHTML = '<div class="mb-2 font-semibold text-green-700">Validated. These direct URLs will be sent; Render click redirects are off.</div>' +
+      '<div class="overflow-x-auto"><table class="w-full"><tbody>' + rows + '</tbody></table></div>';
+    panel.className = 'text-xs text-gray-700';
+    return true;
+  } catch (e) {
+    panel.textContent = e.message;
+    panel.className = 'text-xs text-red-700';
+    return false;
+  }
+}
+
+function escapeRegionalReview(value) {
+  return String(value || '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[character]);
+}
+
+function markRegionalLinkReviewOutdated() {
+  const panel = document.getElementById('reg_link_review');
+  if (!panel) return;
+  panel.textContent = 'Links or UTM settings changed. Review the final links again.';
+  panel.className = 'text-xs text-amber-700';
+}
+
 let regionalUploadInFlight = false;
 
 async function uploadRegionalImages() {
@@ -1132,6 +1198,10 @@ async function previewRegionalNewsletter() {
   if (!win) {
     status.textContent = 'Allow pop-ups for this dashboard to open the newsletter preview.';
     status.className = 'text-xs text-red-600';
+    return;
+  }
+  if (!(await reviewRegionalLinks())) {
+    win.close();
     return;
   }
   win.document.write('<p style="font-family:Arial;padding:24px">Preparing newsletter preview...</p>');
@@ -1324,6 +1394,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const field = document.querySelector('[name="' + name + '"]');
     if (field) field.addEventListener('input', invalidateRegionalImages);
   });
+  document.querySelectorAll(
+    '#regional_builder input[name$="_url"], #regional_builder input[name^="reg_social_"], ' +
+    '#regional_builder input[name^="reg_utm_"]'
+  ).forEach(field => field.addEventListener('input', markRegionalLinkReviewOutdated));
 });
 </script>
 

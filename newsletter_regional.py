@@ -2,6 +2,7 @@
 
 from html import escape
 from io import BytesIO
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from PIL import Image
 
@@ -36,11 +37,56 @@ def _text(value):
     return escape(value, quote=True).replace("\n", "<br>")
 
 
-def _url(value):
+def _valid_url(value):
     value = (value or "").strip()
-    if value.lower().startswith(("http://", "https://", "mailto:")):
-        return escape(value, quote=True)
-    return DEFAULT_URL
+    parsed = urlparse(value)
+    return value if parsed.scheme.lower() in {"http", "https"} and parsed.netloc else ""
+
+
+def _url(value):
+    return escape(_valid_url(value), quote=True)
+
+
+def _with_utms(value, content):
+    """Append missing UTM fields while preserving the operator's URL and query string."""
+    value = _valid_url(value)
+    if not value:
+        return ""
+    parsed = urlparse(value)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    for key, content_key in (
+        ("utm_source", "utm_source"),
+        ("utm_medium", "utm_medium"),
+        ("utm_campaign", "utm_campaign"),
+    ):
+        if content.get(content_key) and not query.get(key):
+            query[key] = content[content_key]
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def resolved_regional_links(content):
+    links = {
+        "Header logo": content["brand_url"],
+        "Hero button": content["hero_cta_url"],
+        **{
+            f"Insight {number}": insight["url"]
+            for number, insight in enumerate(content["insights"], start=1)
+        },
+        "Report button": content["report_cta_url"],
+        "Contact Us": content["contact_url"],
+        "LinkedIn": content["linkedin_url"],
+        "X": content["x_url"],
+        "YouTube": content["youtube_url"],
+    }
+    return {label: _with_utms(url, content) for label, url in links.items()}
+
+
+def _is_generic_homepage(value):
+    parsed = urlparse(_valid_url(value))
+    return (
+        parsed.netloc.lower() in {"kenresearch.com", "www.kenresearch.com"}
+        and parsed.path.rstrip("/") == ""
+    )
 
 
 def regional_content(form):
@@ -48,16 +94,20 @@ def regional_content(form):
         "section_label": _v(form, "reg_section_label", "Regional Market Outlook"),
         "issue_label": _v(form, "reg_issue_label", "Oct 2026 | Issue 01"),
         "region": _v(form, "reg_region", "India"),
+        "brand_url": _v(form, "reg_brand_url", DEFAULT_URL),
+        "utm_source": _v(form, "reg_utm_source", "newsletter"),
+        "utm_medium": _v(form, "reg_utm_medium", "email"),
+        "utm_campaign": _v(form, "reg_utm_campaign", "regional_market_outlook"),
         "hero_title": _v(form, "reg_hero_title"),
         "hero_body": _v(form, "reg_hero_body"),
         "hero_cta_text": _v(form, "reg_hero_cta_text", "Read the Full Perspective"),
-        "hero_cta_url": _v(form, "reg_hero_cta_url", DEFAULT_URL),
+        "hero_cta_url": _v(form, "reg_hero_cta_url"),
         "insights_heading": _v(form, "reg_insights_heading", "Key Insights"),
         "report_label": _v(form, "reg_report_label", "Final File Report"),
         "report_title": _v(form, "reg_report_title"),
         "report_body": _v(form, "reg_report_body"),
         "report_cta_text": _v(form, "reg_report_cta_text", "View Report"),
-        "report_cta_url": _v(form, "reg_report_cta_url", DEFAULT_URL),
+        "report_cta_url": _v(form, "reg_report_cta_url"),
         "contact_url": _v(form, "reg_contact_url", "https://www.kenresearch.com/contact-us"),
         "unsubscribe_url": _v(form, "reg_unsubscribe_url", DEFAULT_URL),
         "linkedin_url": _v(form, "reg_social_linkedin", "https://www.linkedin.com/company/ken-research"),
@@ -77,7 +127,7 @@ def regional_content(form):
         {
             "title": _v(form, f"reg_insight{number}_title"),
             "body": _v(form, f"reg_insight{number}_body"),
-            "url": _v(form, f"reg_insight{number}_url", DEFAULT_URL),
+            "url": _v(form, f"reg_insight{number}_url"),
         }
         for number in range(1, 4)
     ]
@@ -90,6 +140,24 @@ def validate_regional_content(content):
         problems.append("Hero headline is required.")
     if not content["hero_body"]:
         problems.append("Hero summary is required.")
+    required_links = {
+        "Header logo link": content["brand_url"],
+        "Hero button link": content["hero_cta_url"],
+        "Report button link": content["report_cta_url"],
+        "Contact Us link": content["contact_url"],
+        "LinkedIn link": content["linkedin_url"],
+        "X link": content["x_url"],
+        "YouTube link": content["youtube_url"],
+    }
+    for label, value in required_links.items():
+        if not _valid_url(value):
+            problems.append(f"{label} must be a complete http:// or https:// URL.")
+    for label, value in (
+        ("Hero button link", content["hero_cta_url"]),
+        ("Report button link", content["report_cta_url"]),
+    ):
+        if _is_generic_homepage(value):
+            problems.append(f"{label} cannot use the generic Ken Research homepage.")
     for number, indicator in enumerate(content["indicators"], start=1):
         if not indicator:
             problems.append(f"Market indicator {number} is required.")
@@ -98,6 +166,10 @@ def validate_regional_content(content):
             problems.append(f"Insight {number} title is required.")
         if not insight["body"]:
             problems.append(f"Insight {number} summary is required.")
+        if not _valid_url(insight["url"]):
+            problems.append(f"Insight {number} link must be a complete http:// or https:// URL.")
+        elif _is_generic_homepage(insight["url"]):
+            problems.append(f"Insight {number} link cannot use the generic Ken Research homepage.")
     if not content["report_title"]:
         problems.append("Report title is required.")
     if not content["report_body"]:
@@ -155,6 +227,7 @@ def _button(text, url, width=216, height=30, font_size=11):
 
 def render_regional_newsletter(form, asset_base_url="", image_src=None):
     content = regional_content(form)
+    links = resolved_regional_links(content)
     image_src = image_src or {}
 
     def asset(filename):
@@ -183,7 +256,7 @@ def render_regional_newsletter(form, asset_base_url="", image_src=None):
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="344"><tr>
               <td width="40" valign="top" style="width:40px;font-family:Georgia,'Times New Roman',serif;font-size:18px;line-height:20px;color:#9ca3af;">0{number}</td>
               <td width="304" valign="top" style="width:304px;">
-                <a href="{_url(insight['url'])}" target="_blank" style="font-family:Georgia,'Times New Roman',serif;font-size:13px;line-height:15px;font-weight:700;color:{NAVY};text-decoration:none;">{_text(insight['title'])}</a>
+                <a href="{_url(links[f'Insight {number}'])}" target="_blank" style="font-family:Georgia,'Times New Roman',serif;font-size:13px;line-height:15px;font-weight:700;color:{NAVY};text-decoration:none;">{_text(insight['title'])}</a>
                 <div style="padding-top:3px;font-family:Arial,Helvetica,sans-serif;font-size:9px;line-height:12px;color:{GREY};">{_text(insight['body'])}</div>
               </td>
             </tr></table>
@@ -214,7 +287,7 @@ def render_regional_newsletter(form, asset_base_url="", image_src=None):
       <tr><td style="padding:14px 16px 8px;border-bottom:1px solid {RULE};">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
           <td width="2" bgcolor="{RED}" style="width:2px;background:{RED};font-size:1px;">&nbsp;</td>
-          <td valign="bottom" style="padding-left:14px;"><a href="{DEFAULT_URL}" target="_blank"><img src="{logo}" width="200" height="32" alt="Ken Research" style="display:block;width:200px;height:32px;border:0;"></a><div style="padding-top:2px;font-family:Arial,sans-serif;font-size:7px;line-height:9px;letter-spacing:.35px;color:{LIGHT_GREY};">{tagline}</div></td>
+          <td valign="bottom" style="padding-left:14px;"><a href="{_url(links['Header logo'])}" target="_blank"><img src="{logo}" width="200" height="32" alt="Ken Research" style="display:block;width:200px;height:32px;border:0;"></a><div style="padding-top:2px;font-family:Arial,sans-serif;font-size:7px;line-height:9px;letter-spacing:.35px;color:{LIGHT_GREY};">{tagline}</div></td>
           <td align="right" valign="bottom" style="font-family:Arial,sans-serif;"><div style="font-size:11px;line-height:14px;font-weight:700;text-transform:uppercase;color:{NAVY};">{_text(content['section_label'])}</div><div style="font-size:9px;line-height:12px;text-transform:uppercase;color:{LIGHT_GREY};">{_text(content['issue_label'])}</div></td>
         </tr></table>
       </td></tr>
@@ -225,7 +298,7 @@ def render_regional_newsletter(form, asset_base_url="", image_src=None):
             <div style="font-family:Arial,sans-serif;font-size:9px;line-height:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:{RED};">Regional Focus: {_text(content['region'])}</div>
             <div style="padding:5px 0;font-family:Georgia,'Times New Roman',serif;font-size:24px;line-height:25px;font-weight:700;color:{NAVY};">{_text(content['hero_title'])}</div>
             <div style="padding-bottom:9px;font-family:Arial,sans-serif;font-size:10px;line-height:14px;color:{GREY};">{_text(content['hero_body'])}</div>
-            {_button(content['hero_cta_text'], content['hero_cta_url'])}
+            {_button(content['hero_cta_text'], links['Hero button'])}
           </td>
           <td class="reg-stack" width="286" height="252" valign="top"><img class="reg-img" src="{image_src.get('hero', '')}" width="286" height="252" alt="" style="display:block;width:286px;height:252px;object-fit:cover;border:0;"></td>
         </tr></table>
@@ -241,12 +314,12 @@ def render_regional_newsletter(form, asset_base_url="", image_src=None):
 
       <tr><td style="padding:0 32px 10px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="536" bgcolor="{PEACH}" style="width:536px;background:{PEACH};"><tr>
         <td width="48" valign="top" style="width:48px;padding:12px 0 0 8px;"><img src="{report_icon}" width="26" height="30" alt="" style="display:block;border:0;"></td>
-        <td width="366" valign="top" style="width:366px;padding:12px 10px 10px 0;"><div style="font-family:Arial,sans-serif;font-size:9px;line-height:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:{RED};">{_text(content['report_label'])}</div><div style="padding-top:2px;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:17px;font-weight:700;color:{NAVY};">{_text(content['report_title'])}</div><div style="padding:3px 0 9px;font-family:Arial,sans-serif;font-size:9px;line-height:12px;color:{GREY};">{_text(content['report_body'])}</div>{_button(content['report_cta_text'], content['report_cta_url'], 142, 24, 9)}</td>
+        <td width="366" valign="top" style="width:366px;padding:12px 10px 10px 0;"><div style="font-family:Arial,sans-serif;font-size:9px;line-height:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:{RED};">{_text(content['report_label'])}</div><div style="padding-top:2px;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:17px;font-weight:700;color:{NAVY};">{_text(content['report_title'])}</div><div style="padding:3px 0 9px;font-family:Arial,sans-serif;font-size:9px;line-height:12px;color:{GREY};">{_text(content['report_body'])}</div>{_button(content['report_cta_text'], links['Report button'], 142, 24, 9)}</td>
         <td width="102" align="center" valign="middle"><img src="{image_src.get('report', '')}" width="86" height="112" alt="Report cover" style="display:block;width:86px;height:112px;object-fit:cover;border:0;"></td>
       </tr></table></td></tr>
 
-      <tr><td style="padding:0 32px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="536" height="40" style="width:536px;border-top:1px solid {RULE};"><tr><td valign="middle"><img src="{logo}" width="140" height="23" alt="Ken Research" style="display:block;border:0;"><div style="font-family:Arial,sans-serif;font-size:6px;line-height:7px;color:{LIGHT_GREY};">{tagline}</div></td><td align="right"><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right"><tr>{social('mailmodo-linkedin.png', content['linkedin_url'], 'LinkedIn')}{social('mailmodo-twitter.png', content['x_url'], 'X')}{social('mailmodo-youtube.png', content['youtube_url'], 'YouTube')}</tr></table></td></tr></table></td></tr>
-      <tr><td height="16" align="center" valign="top" style="padding:0 32px;"><a href="{_url(content['contact_url'])}" target="_blank" style="{footer_style}">Contact Us</a>{separator}<a href="{_url(content['unsubscribe_url'])}" target="_blank" style="{footer_style}">Unsubscribe</a></td></tr>
+      <tr><td style="padding:0 32px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="536" height="40" style="width:536px;border-top:1px solid {RULE};"><tr><td valign="middle"><img src="{logo}" width="140" height="23" alt="Ken Research" style="display:block;border:0;"><div style="font-family:Arial,sans-serif;font-size:6px;line-height:7px;color:{LIGHT_GREY};">{tagline}</div></td><td align="right"><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right"><tr>{social('mailmodo-linkedin.png', links['LinkedIn'], 'LinkedIn')}{social('mailmodo-twitter.png', links['X'], 'X')}{social('mailmodo-youtube.png', links['YouTube'], 'YouTube')}</tr></table></td></tr></table></td></tr>
+      <tr><td height="16" align="center" valign="top" style="padding:0 32px;"><a href="{_url(links['Contact Us'])}" target="_blank" style="{footer_style}">Contact Us</a>{separator}<a href="{_url(content['unsubscribe_url'])}" target="_blank" style="{footer_style}">Unsubscribe</a></td></tr>
     </table>
   </td></tr>
 </table>"""
