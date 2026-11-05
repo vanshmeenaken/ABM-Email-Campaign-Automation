@@ -379,10 +379,7 @@
             {% set n = loop.index %}
             <div class="rounded-lg bg-gray-50 p-3 space-y-2">
               <div class="text-xs font-semibold text-gray-600">Insight {{ n }}</div>
-              <div class="grid gap-2 md:grid-cols-2">
-                <input name="reg_insight{{ n }}_title" type="text" value="{{ title }}" class="{{ ind_input }}" />
-                <input name="reg_insight{{ n }}_url" type="url" value="" placeholder="https://www.kenresearch.com/insight-{{ n }}" aria-label="Insight {{ n }} destination" class="{{ ind_input }}" />
-              </div>
+              <input name="reg_insight{{ n }}_title" type="text" value="{{ title }}" class="{{ ind_input }}" />
               <textarea name="reg_insight{{ n }}_body" rows="4" class="{{ ind_input }} resize-y">{{ body }}</textarea>
             </div>
             {% endfor %}
@@ -405,7 +402,7 @@
             <div class="flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <h4 class="text-sm font-semibold text-gray-800">Final link review</h4>
-                <p class="text-xs text-gray-600 mt-1">All content links must be complete URLs. The generic Ken Research homepage is rejected for hero, insights and report links.</p>
+                <p class="text-xs text-gray-600 mt-1">Hero and report links must be complete URLs. The three insight columns do not require or include links.</p>
               </div>
               <button type="button" onclick="reviewRegionalLinks()" class="inline-flex items-center bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-2 rounded-lg">Review final links</button>
             </div>

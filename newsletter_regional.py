@@ -68,10 +68,6 @@ def resolved_regional_links(content):
     links = {
         "Header logo": content["brand_url"],
         "Hero button": content["hero_cta_url"],
-        **{
-            f"Insight {number}": insight["url"]
-            for number, insight in enumerate(content["insights"], start=1)
-        },
         "Report button": content["report_cta_url"],
         "Contact Us": content["contact_url"],
         "LinkedIn": content["linkedin_url"],
@@ -127,7 +123,6 @@ def regional_content(form):
         {
             "title": _v(form, f"reg_insight{number}_title"),
             "body": _v(form, f"reg_insight{number}_body"),
-            "url": _v(form, f"reg_insight{number}_url"),
         }
         for number in range(1, 4)
     ]
@@ -166,10 +161,6 @@ def validate_regional_content(content):
             problems.append(f"Insight {number} title is required.")
         if not insight["body"]:
             problems.append(f"Insight {number} summary is required.")
-        if not _valid_url(insight["url"]):
-            problems.append(f"Insight {number} link must be a complete http:// or https:// URL.")
-        elif _is_generic_homepage(insight["url"]):
-            problems.append(f"Insight {number} link cannot use the generic Ken Research homepage.")
     if not content["report_title"]:
         problems.append("Report title is required.")
     if not content["report_body"]:
@@ -256,7 +247,7 @@ def render_regional_newsletter(form, asset_base_url="", image_src=None):
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="344"><tr>
               <td width="40" valign="top" style="width:40px;font-family:Georgia,'Times New Roman',serif;font-size:18px;line-height:20px;color:#9ca3af;">0{number}</td>
               <td width="304" valign="top" style="width:304px;">
-                <a href="{_url(links[f'Insight {number}'])}" target="_blank" style="font-family:Georgia,'Times New Roman',serif;font-size:13px;line-height:15px;font-weight:700;color:{NAVY};text-decoration:none;">{_text(insight['title'])}</a>
+                <div style="font-family:Georgia,'Times New Roman',serif;font-size:13px;line-height:15px;font-weight:700;color:{NAVY};">{_text(insight['title'])}</div>
                 <div style="padding-top:3px;font-family:Arial,Helvetica,sans-serif;font-size:9px;line-height:12px;color:{GREY};">{_text(insight['body'])}</div>
               </td>
             </tr></table>

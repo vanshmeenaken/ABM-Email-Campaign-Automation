@@ -46,7 +46,6 @@ def complete_form():
     for number in range(1, 4):
         form[f"reg_insight{number}_title"] = f"Insight {number}"
         form[f"reg_insight{number}_body"] = f"Insight summary {number}"
-        form[f"reg_insight{number}_url"] = f"https://example.com/insight-{number}"
     return form
 
 
@@ -113,17 +112,27 @@ class RegionalNewsletterTests(unittest.TestCase):
         self.assertNotIn("utm_source=regional-team", links["Hero button"])
         self.assertIn("utm_source=regional-team", links["Header logo"])
 
-    def test_content_links_reject_missing_invalid_and_generic_homepage_urls(self):
+    def test_content_links_reject_missing_and_generic_homepage_urls(self):
         form = complete_form()
         form["reg_hero_cta_url"] = "https://www.kenresearch.com?utm_source=test"
-        form["reg_insight2_url"] = "not-a-url"
         form["reg_report_cta_url"] = ""
 
         problems = validate_regional_content(regional_content(form))
 
         self.assertIn("Hero button link cannot use the generic Ken Research homepage.", problems)
-        self.assertIn("Insight 2 link must be a complete http:// or https:// URL.", problems)
         self.assertIn("Report button link must be a complete http:// or https:// URL.", problems)
+
+    def test_insight_columns_have_no_links_or_url_requirements(self):
+        form = complete_form()
+        form["reg_insight2_url"] = "not-a-url"
+
+        content = regional_content(form)
+        html = render_regional_newsletter(form)
+
+        self.assertNotIn("url", content["insights"][1])
+        self.assertEqual([], validate_regional_content(content))
+        self.assertNotIn("not-a-url", html)
+        self.assertIn(">Insight 2</div>", html)
 
     def test_uploaded_images_are_normalized_to_each_regional_slot(self):
         for slot in REGIONAL_SLOTS:
@@ -142,6 +151,9 @@ class RegionalNewsletterTests(unittest.TestCase):
         self.assertIn(b'reg_upload_report', response.data)
         self.assertIn(b"Final link review", response.data)
         self.assertIn(b'reg_brand_url', response.data)
+        self.assertNotIn(b'reg_insight1_url', response.data)
+        self.assertNotIn(b'reg_insight2_url', response.data)
+        self.assertNotIn(b'reg_insight3_url', response.data)
         self.assertNotIn(b'name="tracker_url"', response.data)
         self.assertNotIn(b"Manage Preferences", response.data)
 
