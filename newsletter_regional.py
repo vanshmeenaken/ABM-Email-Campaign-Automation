@@ -227,7 +227,7 @@ def render_regional_newsletter(form, asset_base_url="", image_src=None):
             return f"cid:{filename}"
         return f"{base.rstrip('/')}/assets/newsletter/{filename}"
 
-    logo = asset("regional-ken-research-logo.png")
+    logo = asset("ken-research-logo-color.png")
     report_icon = asset("industry-report-icon.png")
     tagline = "GLOBAL STRATEGIC CONSULTING &amp; MARKET INTELLIGENCE"
     indicator_cells = []
@@ -278,7 +278,7 @@ def render_regional_newsletter(form, asset_base_url="", image_src=None):
       <tr><td style="padding:14px 16px 8px;border-bottom:1px solid {RULE};">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
           <td width="2" bgcolor="{RED}" style="width:2px;background:{RED};font-size:1px;">&nbsp;</td>
-          <td valign="bottom" style="padding-left:14px;"><a href="{_url(links['Header logo'])}" target="_blank"><img src="{logo}" width="200" height="32" alt="Ken Research" style="display:block;width:200px;height:32px;border:0;"></a><div style="padding-top:2px;font-family:Arial,sans-serif;font-size:7px;line-height:9px;letter-spacing:.35px;color:{LIGHT_GREY};">{tagline}</div></td>
+          <td valign="bottom" style="padding-left:14px;"><a href="{_url(links['Header logo'])}" target="_blank"><img src="{logo}" width="200" height="24" alt="Ken Research" style="display:block;width:200px;height:24px;border:0;"></a><div style="padding-top:2px;font-family:Arial,sans-serif;font-size:7px;line-height:9px;letter-spacing:.35px;color:{LIGHT_GREY};">{tagline}</div></td>
           <td align="right" valign="bottom" style="font-family:Arial,sans-serif;"><div style="font-size:11px;line-height:14px;font-weight:700;text-transform:uppercase;color:{NAVY};">{_text(content['section_label'])}</div><div style="font-size:9px;line-height:12px;text-transform:uppercase;color:{LIGHT_GREY};">{_text(content['issue_label'])}</div></td>
         </tr></table>
       </td></tr>
@@ -309,7 +309,7 @@ def render_regional_newsletter(form, asset_base_url="", image_src=None):
         <td width="102" align="center" valign="middle"><img src="{image_src.get('report', '')}" width="86" height="112" alt="Report cover" style="display:block;width:86px;height:112px;object-fit:cover;border:0;"></td>
       </tr></table></td></tr>
 
-      <tr><td style="padding:0 32px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="536" height="40" style="width:536px;border-top:1px solid {RULE};"><tr><td valign="middle"><img src="{logo}" width="140" height="23" alt="Ken Research" style="display:block;border:0;"><div style="font-family:Arial,sans-serif;font-size:6px;line-height:7px;color:{LIGHT_GREY};">{tagline}</div></td><td align="right"><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right"><tr>{social('mailmodo-linkedin.png', links['LinkedIn'], 'LinkedIn')}{social('mailmodo-twitter.png', links['X'], 'X')}{social('mailmodo-youtube.png', links['YouTube'], 'YouTube')}</tr></table></td></tr></table></td></tr>
+      <tr><td style="padding:0 32px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="536" height="40" style="width:536px;border-top:1px solid {RULE};"><tr><td valign="middle"><img src="{logo}" width="140" height="17" alt="Ken Research" style="display:block;width:140px;height:17px;border:0;"><div style="font-family:Arial,sans-serif;font-size:6px;line-height:7px;color:{LIGHT_GREY};">{tagline}</div></td><td align="right"><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right"><tr>{social('mailmodo-linkedin.png', links['LinkedIn'], 'LinkedIn')}{social('mailmodo-twitter.png', links['X'], 'X')}{social('mailmodo-youtube.png', links['YouTube'], 'YouTube')}</tr></table></td></tr></table></td></tr>
       <tr><td height="16" align="center" valign="top" style="padding:0 32px;"><a href="{_url(links['Contact Us'])}" target="_blank" style="{footer_style}">Contact Us</a>{separator}<a href="{_url(content['unsubscribe_url'])}" target="_blank" style="{footer_style}">Unsubscribe</a></td></tr>
     </table>
   </td></tr>
