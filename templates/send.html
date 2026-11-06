@@ -100,7 +100,7 @@
 
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-2">Step 1 Composer</label>
-          <div class="grid gap-3 md:grid-cols-4">
+          <div class="grid gap-3 md:grid-cols-5">
             <label class="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 cursor-pointer">
               <input type="radio" name="template_mode" value="custom" checked onchange="toggleTemplateMode()"
                      class="mt-1 text-blue-600 focus:ring-blue-500 border-gray-300">
@@ -131,6 +131,14 @@
               <span>
                 <span class="block text-sm font-semibold text-gray-800">Regional Market Outlook</span>
                 <span class="block text-xs text-gray-500 mt-0.5">Regional focus, market indicators, key insights and a featured report.</span>
+              </span>
+            </label>
+            <label class="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 cursor-pointer">
+              <input type="radio" name="template_mode" value="leaders_perspective" onchange="toggleTemplateMode()"
+                     class="mt-1 text-blue-600 focus:ring-blue-500 border-gray-300">
+              <span>
+                <span class="block text-sm font-semibold text-gray-800">Leader's Perspective</span>
+                <span class="block text-xs text-gray-500 mt-0.5">Leader commentary, related research and featured market intelligence.</span>
               </span>
             </label>
           </div>
@@ -437,6 +445,123 @@
                 <p class="mt-2 text-[11px] text-gray-400">{{ note }}</p>
                 <label class="mt-2 block cursor-pointer text-xs text-blue-700 hover:underline">Upload / replace
                   <input type="file" name="reg_upload_{{ slot }}" accept="image/png,image/jpeg,image/webp,image/avif" class="hidden" onchange="uploadRegionalImages()" />
+                </label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <div id="leader_builder" class="hidden space-y-6">
+          <div class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-900">
+            Build the Leader's Perspective newsletter from the approved BFSI design. All copy, CTA destinations, UTM values and images are editable. Official Ken Research logos and personalized unsubscribe handling are fixed automatically.
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-4">
+            <div><label class="block text-sm font-medium text-gray-700 mb-1">Template label</label><input name="lead_section_label" type="text" value="Leader's Perspective" class="{{ ind_input }}" /></div>
+            <div><label class="block text-sm font-medium text-gray-700 mb-1">Industry</label><input name="lead_industry_label" type="text" value="BFSI" class="{{ ind_input }}" /></div>
+            <div><label class="block text-sm font-medium text-gray-700 mb-1">Region</label><input name="lead_region_label" type="text" value="Southeast Asia" class="{{ ind_input }}" /></div>
+            <div><label class="block text-sm font-medium text-gray-700 mb-1">Issue</label><input name="lead_issue_label" type="text" value="October 2026 | Issue 01" class="{{ ind_input }}" /></div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Brand destination and UTM settings</h4>
+            <input name="lead_brand_url" type="url" value="https://www.kenresearch.com" aria-label="Header logo destination" class="{{ ind_input }}" />
+            <div class="grid gap-3 md:grid-cols-3">
+              <input name="lead_utm_source" type="text" value="newsletter" aria-label="UTM source" placeholder="utm_source" class="{{ ind_input }}" />
+              <input name="lead_utm_medium" type="text" value="email" aria-label="UTM medium" placeholder="utm_medium" class="{{ ind_input }}" />
+              <input name="lead_utm_campaign" type="text" value="leaders_perspective" aria-label="UTM campaign" placeholder="utm_campaign" class="{{ ind_input }}" />
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Hero article</h4>
+            <input name="lead_hero_kicker" type="text" value="Vietnam | Digital Financial Services" class="{{ ind_input }}" />
+            <textarea name="lead_hero_title" rows="2" class="{{ ind_input }} resize-y">Vietnam's Mobile Payments Have Scale. Where Is the Profitability?</textarea>
+            <textarea name="lead_hero_body" rows="4" class="{{ ind_input }} resize-y">Vietnam's digital payments ecosystem recorded 9.56 billion transactions in 2024. Yet greater adoption does not automatically translate into stronger margins or deeper customer relationships.</textarea>
+            <div class="grid gap-3 md:grid-cols-2">
+              <input name="lead_hero_cta_text" type="text" value="Read the Full Article" class="{{ ind_input }}" />
+              <input name="lead_hero_cta_url" type="url" value="https://www.kenresearch.com/articles/vietnam-fintech-payments-growth-profitability" class="{{ ind_input }}" />
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Leader profile and quote</h4>
+            <div class="grid gap-3 md:grid-cols-3">
+              <input name="lead_leader_label" type="text" value="From the Leader" class="{{ ind_input }}" />
+              <input name="lead_leader_name" type="text" value="Namit Goel" class="{{ ind_input }}" />
+              <input name="lead_leader_role" type="text" value="Co-Founder &amp; Director, Ken Research" class="{{ ind_input }}" />
+            </div>
+            <textarea name="lead_leader_quote" rows="4" class="{{ ind_input }} resize-y">The real opportunity in financial services is not simply acquiring more customers. It is building the trust, advisory capabilities and operating models needed to turn growing participation into enduring client relationships.</textarea>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Further reading</h4>
+            <div class="grid gap-3 md:grid-cols-2">
+              <input name="lead_reading_label" type="text" value="Further Reading" class="{{ ind_input }}" />
+              <input name="lead_reading_meta" type="text" value="Southeast Asia | SME Lending | September 2026" class="{{ ind_input }}" />
+            </div>
+            <textarea name="lead_reading_title" rows="2" class="{{ ind_input }} resize-y">How Are Southeast Asian Lenders Competing for SME Growth?</textarea>
+            <textarea name="lead_reading_body" rows="4" class="{{ ind_input }} resize-y">Funding capacity, digital underwriting, borrower reach and risk management are becoming important differentiators in Southeast Asia's SME lending market. Understanding how lenders compete across these dimensions can help financial institutions evaluate their positioning, identify competitive gaps and assess opportunities for sustainable growth.</textarea>
+            <div class="grid gap-3 md:grid-cols-2">
+              <input name="lead_reading_cta_text" type="text" value="Explore the Regional Benchmarking Research" class="{{ ind_input }}" />
+              <input name="lead_reading_cta_url" type="url" value="https://www.kenresearch.com/competition-benchmarking/southeast-asia-sme-lending-competition-benchmarking-2025" class="{{ ind_input }}" />
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Featured market intelligence</h4>
+            <input name="lead_report_label" type="text" value="Featured Market Intelligence" class="{{ ind_input }}" />
+            <textarea name="lead_report_title" rows="2" class="{{ ind_input }} resize-y">Vietnam Wealth Management Market Outlook to 2029</textarea>
+            <textarea name="lead_report_body" rows="5" class="{{ ind_input }} resize-y">As Vietnam's financial-services ecosystem evolves, wealth managers face opportunities to strengthen investment products, advisory distribution and long-term client relationships.
+
+Explore the market's wealth segments, fund-management landscape, competitive positioning and emerging opportunities for banks, asset managers and advisory platforms.</textarea>
+            <div class="grid gap-3 md:grid-cols-2">
+              <input name="lead_report_cta_text" type="text" value="Explore Vietnam's Wealth Market" class="{{ ind_input }}" />
+              <input name="lead_report_cta_url" type="url" value="https://www.kenresearch.com/vietnam-wealth-management-market" class="{{ ind_input }}" />
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Footer links</h4>
+            <div class="grid gap-3 md:grid-cols-2">
+              <input name="lead_contact_url" type="url" value="https://www.kenresearch.com/contact-us" aria-label="Contact Us destination" class="{{ ind_input }}" />
+              <input type="text" value="Unsubscribe is personalized automatically" disabled class="{{ ind_input }} bg-gray-50 text-gray-500" />
+              <input name="lead_social_linkedin" type="url" value="https://www.linkedin.com/company/ken-research" aria-label="LinkedIn destination" class="{{ ind_input }}" />
+              <input name="lead_social_x" type="url" value="https://x.com/kenresearch" aria-label="X destination" class="{{ ind_input }}" />
+              <input name="lead_social_youtube" type="url" value="https://www.youtube.com/@kenresearch" aria-label="YouTube destination" class="{{ ind_input }}" />
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div><h4 class="text-sm font-semibold text-gray-800">Final link review</h4><p class="text-xs text-gray-600 mt-1">Review the exact direct UTM links before previewing or sending.</p></div>
+              <button type="button" onclick="reviewLeaderLinks()" class="inline-flex items-center bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-2 rounded-lg">Review final links</button>
+            </div>
+            <div id="lead_link_review" class="text-xs text-gray-500">No Render redirect links are applied to this template.</div>
+          </div>
+
+          <div class="rounded-lg border border-blue-200 bg-blue-50/40 p-4 space-y-3">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <h4 class="text-sm font-semibold text-gray-800">Leader's Perspective images</h4>
+              <button type="button" onclick="previewLeaderNewsletter()" class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm">Preview newsletter</button>
+            </div>
+            <input type="hidden" name="lead_image_token" id="lead_image_token" value="" />
+            <p id="lead_image_status" class="text-xs text-gray-500">Upload hero, further-reading and report images. Namit Goel's supplied portrait is used automatically unless replaced.</p>
+            <div class="grid gap-3 grid-cols-2 md:grid-cols-4">
+              {% for slot, label, note, ratio in [("hero", "1. Hero", "Required · landscape", "600 / 520"), ("portrait", "2. Leader portrait", "Optional · Namit supplied", "1 / 1"), ("reading", "3. Further reading", "Required · 4:3", "4 / 3"), ("report", "4. Report cover", "Required · 3:4", "3 / 4")] %}
+              <div class="rounded-lg border border-gray-200 bg-white p-2 text-center">
+                <div class="bg-gray-100 rounded overflow-hidden flex items-center justify-center" style="aspect-ratio: {{ ratio }}">
+                  {% if slot == "portrait" %}
+                  <img id="lead_img_{{ slot }}" src="{{ url_for('newsletter_asset', filename='leaders-namit-goel.jpg') }}" alt="Namit Goel" class="w-full h-full object-cover" />
+                  {% else %}
+                  <img id="lead_img_{{ slot }}" alt="" class="hidden w-full h-full object-cover" />
+                  {% endif %}
+                  <span id="lead_ph_{{ slot }}" class="{% if slot == 'portrait' %}hidden {% endif %}text-xs text-gray-400">{{ label }}</span>
+                </div>
+                <p class="mt-2 text-[11px] text-gray-400">{{ note }}</p>
+                <label class="mt-2 block cursor-pointer text-xs text-blue-700 hover:underline">Upload / replace
+                  <input type="file" name="lead_upload_{{ slot }}" accept="image/png,image/jpeg,image/webp,image/avif" class="hidden" onchange="uploadLeaderImages()" />
                 </label>
               </div>
               {% endfor %}
@@ -950,9 +1075,10 @@ function toggleTemplateMode() {
   newsletter.classList.toggle('hidden', mode !== 'kensight_newsletter');
   document.getElementById('industry_builder').classList.toggle('hidden', mode !== 'industry_intelligence');
   document.getElementById('regional_builder').classList.toggle('hidden', mode !== 'regional_market_outlook');
+  document.getElementById('leader_builder').classList.toggle('hidden', mode !== 'leaders_perspective');
   // Newsletter subjects default to their hero headline when left empty.
   const subject = document.querySelector('input[name="subject_1"]');
-  if (subject) subject.required = !['industry_intelligence', 'regional_market_outlook'].includes(mode);
+  if (subject) subject.required = !['industry_intelligence', 'regional_market_outlook', 'leaders_perspective'].includes(mode);
   toggleNewsletterTemplate();
 }
 
@@ -1228,6 +1354,132 @@ async function previewRegionalNewsletter() {
   }
 }
 
+function leaderFormData() {
+  const fd = new FormData();
+  document.querySelectorAll('#leader_builder [name]').forEach(el => {
+    if (el.type === 'file') {
+      if (el.files.length) fd.append(el.name, el.files[0]);
+    } else {
+      fd.append(el.name, el.value);
+    }
+  });
+  return fd;
+}
+
+async function reviewLeaderLinks() {
+  const panel = document.getElementById('lead_link_review');
+  panel.textContent = 'Checking the exact sent URLs...';
+  panel.className = 'text-xs text-gray-500';
+  try {
+    const res = await fetch('/api/newsletter/leader-links', { method: 'POST', body: leaderFormData() });
+    const data = await readDashboardJson(res, 'The Leader link review');
+    if (!res.ok) {
+      panel.textContent = (data.errors || [data.error || 'Correct the invalid links.']).join(' ');
+      panel.className = 'text-xs text-red-700';
+      return false;
+    }
+    const rows = Object.entries(data.links).map(([label, url]) =>
+      '<tr class="border-t border-amber-200"><td class="py-2 pr-3 font-semibold align-top whitespace-nowrap">' +
+      escapeRegionalReview(label) + '</td><td class="py-2 break-all"><a class="text-blue-700 hover:underline" target="_blank" rel="noopener" href="' +
+      escapeRegionalReview(url) + '">' + escapeRegionalReview(url) + '</a></td></tr>'
+    ).join('');
+    panel.innerHTML = '<div class="mb-2 font-semibold text-green-700">Validated. These direct UTM URLs will be sent.</div>' +
+      '<div class="overflow-x-auto"><table class="w-full"><tbody>' + rows + '</tbody></table></div>';
+    panel.className = 'text-xs text-gray-700';
+    return true;
+  } catch (e) {
+    panel.textContent = e.message;
+    panel.className = 'text-xs text-red-700';
+    return false;
+  }
+}
+
+function markLeaderLinkReviewOutdated() {
+  const panel = document.getElementById('lead_link_review');
+  if (!panel) return;
+  panel.textContent = 'Links or UTM settings changed. Review the final links again.';
+  panel.className = 'text-xs text-amber-700';
+}
+
+let leaderUploadInFlight = false;
+
+async function uploadLeaderImages() {
+  if (leaderUploadInFlight) return;
+  leaderUploadInFlight = true;
+  const inputs = document.querySelectorAll('[name^="lead_upload_"]');
+  inputs.forEach(input => { input.disabled = true; });
+  const status = document.getElementById('lead_image_status');
+  status.textContent = 'Validating and preparing the uploaded image...';
+  status.className = 'text-xs text-gray-500';
+  try {
+    const res = await fetch('/api/newsletter/leader-images/upload', { method: 'POST', body: leaderFormData() });
+    const data = await readDashboardJson(res, 'The Leader image upload');
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    document.getElementById('lead_image_token').value = data.token;
+    Object.entries(data.images).forEach(([slot, info]) => {
+      if (!['hero', 'portrait', 'reading', 'report'].includes(slot)) return;
+      const img = document.getElementById('lead_img_' + slot);
+      img.src = info.url;
+      img.classList.remove('hidden');
+      document.getElementById('lead_ph_' + slot).classList.add('hidden');
+    });
+    inputs.forEach(input => { input.value = ''; });
+    if (data.missing.length) {
+      status.textContent = 'Image saved. Still upload: ' + data.missing.join(', ') + '.';
+      status.className = 'text-xs text-amber-700';
+    } else {
+      status.textContent = 'Required images are ready. Review the links and newsletter preview, then launch.';
+      status.className = 'text-xs text-green-700';
+    }
+  } catch (e) {
+    status.textContent = 'Could not upload the image: ' + e.message;
+    status.className = 'text-xs text-red-600';
+  } finally {
+    leaderUploadInFlight = false;
+    inputs.forEach(input => { input.disabled = false; });
+  }
+}
+
+async function previewLeaderNewsletter() {
+  const win = window.open('', '_blank');
+  const status = document.getElementById('lead_image_status');
+  if (!win) {
+    status.textContent = 'Allow pop-ups for this dashboard to open the newsletter preview.';
+    status.className = 'text-xs text-red-600';
+    return;
+  }
+  if (!(await reviewLeaderLinks())) {
+    win.close();
+    return;
+  }
+  win.document.write('<p style="font-family:Arial;padding:24px">Preparing Leader\'s Perspective preview...</p>');
+  const missing = ['hero', 'reading', 'report'].filter(slot =>
+    document.getElementById('lead_img_' + slot).classList.contains('hidden')
+  );
+  if (missing.length) {
+    win.close();
+    status.textContent = 'Upload required images before previewing. Missing: ' + missing.join(', ') + '.';
+    status.className = 'text-xs text-red-600';
+    return;
+  }
+  try {
+    const res = await fetch('/newsletter/leader-preview', { method: 'POST', body: leaderFormData() });
+    const html = await res.text();
+    if (!res.ok) {
+      let message = 'Could not open the Leader\'s Perspective preview.';
+      try { message = JSON.parse(html).error || message; } catch (_) {}
+      throw new Error(message);
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  } catch (e) {
+    win.close();
+    status.textContent = e.message;
+    status.className = 'text-xs text-red-600';
+  }
+}
+
 function toggleNewsletterTemplate() {
   const selected = document.querySelector('input[name="newsletter_template"]:checked');
   const template = selected ? selected.value : 'overview';
@@ -1395,6 +1647,10 @@ document.addEventListener('DOMContentLoaded', function() {
     '#regional_builder input[name$="_url"], #regional_builder input[name^="reg_social_"], ' +
     '#regional_builder input[name^="reg_utm_"]'
   ).forEach(field => field.addEventListener('input', markRegionalLinkReviewOutdated));
+  document.querySelectorAll(
+    '#leader_builder input[name$="_url"], #leader_builder input[name^="lead_social_"], ' +
+    '#leader_builder input[name^="lead_utm_"]'
+  ).forEach(field => field.addEventListener('input', markLeaderLinkReviewOutdated));
 });
 </script>
 

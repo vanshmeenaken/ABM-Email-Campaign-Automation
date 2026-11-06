@@ -39,6 +39,17 @@ from newsletter_regional import (
     resolved_regional_links,
     validate_regional_content,
 )
+from newsletter_leader import (
+    DEFAULT_PORTRAIT_FILE as LEADER_DEFAULT_PORTRAIT_FILE,
+    IMAGE_FILES as LEADER_IMAGE_FILES,
+    LEADER_SLOTS,
+    REQUIRED_UPLOAD_SLOTS as LEADER_REQUIRED_UPLOAD_SLOTS,
+    leader_content,
+    prepare_leader_image,
+    render_leader_newsletter,
+    resolved_leader_links,
+    validate_leader_content,
+)
 from unsubscribe import (
     InvalidUnsubscribeToken,
     create_unsubscribe_token,
@@ -82,6 +93,7 @@ NEWSLETTER_ASSET_FILES = {
     "regional-report-cover-reference.png",
     "regional-hero-reference.jpg",
     "regional-insights-reference.jpg",
+    "leaders-namit-goel.jpg",
 }
 NEWSLETTER_INLINE_ASSET_FILES = (
     "mailmodo-hero-banner.jpg",
@@ -104,6 +116,7 @@ NEWSLETTER_INLINE_ASSET_FILES = (
     "regional-report-cover-reference.png",
     "regional-hero-reference.jpg",
     "regional-insights-reference.jpg",
+    "leaders-namit-goel.jpg",
 )
 
 # 1x1 transparent PNG pixel
@@ -2337,12 +2350,32 @@ def send_submit():
         body_1 = render_regional_newsletter(regional_form, "cid", image_src)
         if not request.form.get("subject_1", "").strip():
             subject_1 = content["hero_title"]
+    elif template_mode == "leaders_perspective":
+        leader_form = request.form.to_dict(flat=True)
+        leader_form["lead_unsubscribe_url"] = UNSUBSCRIBE_URL_PLACEHOLDER
+        content = leader_content(leader_form)
+        problems = validate_leader_content(content)
+        if problems:
+            flash(" ".join(problems), "error")
+            return redirect(url_for("send_form"))
+        try:
+            image_b64 = _resolve_leader_images(request.form)
+        except Exception as e:
+            flash(f"Could not prepare the Leader's Perspective images: {e}", "error")
+            return redirect(url_for("send_form"))
+        newsletter_attachments = [
+            (LEADER_IMAGE_FILES[slot], b64) for slot, b64 in image_b64.items()
+        ]
+        image_src = {slot: f"cid:{LEADER_IMAGE_FILES[slot]}" for slot in image_b64}
+        body_1 = render_leader_newsletter(leader_form, "cid", image_src)
+        if not request.form.get("subject_1", "").strip():
+            subject_1 = content["hero_title"]
     else:
         body_1 = request.form.get("body_1", "").strip() or (
             f"<p>This is an outreach email from Ken Research.</p>"
             f"<p>Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"
         )
-    track_clicks = template_mode != "regional_market_outlook"
+    track_clicks = template_mode not in {"regional_market_outlook", "leaders_perspective"}
     sequences.append({
         "step": 1,
         "delay_days": 0,
@@ -2514,6 +2547,28 @@ def _resolve_regional_images(form):
     if any(have[slot]["placeholder"] for slot in REGIONAL_SLOTS):
         raise RuntimeError("Placeholder images are never sent.")
     return {slot: have[slot]["data_b64"] for slot in REGIONAL_SLOTS}
+
+
+def _resolve_leader_images(form):
+    """Return reviewed Leader's Perspective images; the supplied leader portrait is optional."""
+    token = (form.get("lead_image_token") or "").strip()
+    if not token:
+        raise RuntimeError(
+            "upload and review the hero, further-reading and report images before launch."
+        )
+    rows = query_db(
+        "SELECT slot, data_b64, placeholder FROM generated_images WHERE token = %s", (token,)
+    )
+    have = {row["slot"]: row for row in rows if row["slot"] in LEADER_SLOTS}
+    missing = [slot for slot in LEADER_REQUIRED_UPLOAD_SLOTS if slot not in have]
+    if missing:
+        raise RuntimeError(
+            "upload and review all required Leader's Perspective images before launch. "
+            f"Missing: {', '.join(missing)}."
+        )
+    if any(have[slot]["placeholder"] for slot in have):
+        raise RuntimeError("Placeholder images are never sent.")
+    return {slot: row["data_b64"] for slot, row in have.items()}
 
 
 def _generate_industry_images_job(token, specs, industry, slots):
@@ -2754,6 +2809,91 @@ def regional_preview():
     return Response(
         f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
         f'<title>Regional Market Outlook preview</title></head><body style="margin:0">{html}</body></html>',
+        mimetype="text/html",
+    )
+
+
+@app.route("/api/newsletter/leader-images/upload", methods=["POST"])
+def api_leader_image_upload():
+    """Validate, normalize, and persist Leader's Perspective images."""
+    import uuid
+
+    content = leader_content(request.form)
+    problems = validate_leader_content(content)
+    if problems:
+        return jsonify({"error": " ".join(problems)}), 400
+
+    token = (request.form.get("lead_image_token") or "").strip() or uuid.uuid4().hex
+    results = {}
+    for slot in LEADER_SLOTS:
+        upload = request.files.get(f"lead_upload_{slot}")
+        if not upload or not upload.filename:
+            continue
+        try:
+            results[slot] = (prepare_leader_image(slot, upload.read()), False)
+        except ValueError as exc:
+            return jsonify({"error": f"{slot}: {exc}"}), 400
+
+    if not results:
+        return jsonify({"error": "Choose at least one Leader's Perspective image to upload."}), 400
+
+    _store_generated_images(token, results)
+    images = {
+        slot: info for slot, info in _stored_image_payload(token).items() if slot in LEADER_SLOTS
+    }
+    missing = [slot for slot in LEADER_REQUIRED_UPLOAD_SLOTS if slot not in images]
+    return jsonify({
+        "token": token,
+        "status": "complete" if not missing else "partial",
+        "images": images,
+        "missing": missing,
+        "provider": "Dashboard upload",
+    })
+
+
+@app.route("/api/newsletter/leader-links", methods=["POST"])
+def api_leader_links():
+    """Return the exact direct links used by the Leader's Perspective newsletter."""
+    content = leader_content(request.form)
+    problems = validate_leader_content(content)
+    return jsonify({
+        "links": resolved_leader_links(content),
+        "errors": problems,
+        "click_tracking": False,
+    }), (400 if problems else 200)
+
+
+@app.route("/newsletter/leader-preview", methods=["POST"])
+def leader_preview():
+    """Render the Leader's Perspective exactly as it will be sent."""
+    content = leader_content(request.form)
+    problems = validate_leader_content(content)
+    if problems:
+        return jsonify({"error": " ".join(problems)}), 400
+    token = (request.form.get("lead_image_token") or "").strip()
+    image_src = {}
+    if token:
+        for row in query_db(
+            "SELECT slot FROM generated_images WHERE token = %s AND placeholder = FALSE", (token,)
+        ):
+            if row["slot"] in LEADER_SLOTS:
+                image_src[row["slot"]] = url_for(
+                    "generated_image", token=token, slot=row["slot"], _external=True
+                )
+    missing = [slot for slot in LEADER_REQUIRED_UPLOAD_SLOTS if slot not in image_src]
+    if missing:
+        return jsonify({
+            "error": "Upload the hero, further-reading and report images before previewing. "
+                     f"Missing: {', '.join(missing)}."
+        }), 400
+    image_src.setdefault(
+        "portrait",
+        url_for("newsletter_asset", filename=LEADER_DEFAULT_PORTRAIT_FILE, _external=True),
+    )
+    html = render_leader_newsletter(request.form, request.host_url.rstrip("/"), image_src)
+    return Response(
+        f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>Leader&#39;s Perspective preview</title></head><body style="margin:0">{html}</body></html>',
         mimetype="text/html",
     )
 
