@@ -164,7 +164,7 @@ class RegionalNewsletterTests(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         payload = response.get_json()
-        self.assertFalse(payload["click_tracking"])
+        self.assertTrue(payload["click_tracking"])
         self.assertEqual([], payload["errors"])
         self.assertEqual(
             "https://example.com/report?utm_source=newsletter&utm_medium=email&utm_campaign=regional_market_outlook",

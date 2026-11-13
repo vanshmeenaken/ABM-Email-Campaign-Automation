@@ -1565,9 +1565,7 @@ def apply_click_tracking(body, tracker_url, campaign_id, recipient, step, unsubs
 
 def apply_sequence_click_tracking(body, sequence, tracker_url, campaign_id, recipient, step,
                                   unsubscribe_url=""):
-    """Honor the click-link policy stored with the launched campaign sequence."""
-    if not sequence.get("track_clicks", True):
-        return body
+    """Track links for every template, including older stored campaign sequences."""
     return apply_click_tracking(
         body, tracker_url, campaign_id, recipient, step, unsubscribe_url=unsubscribe_url
     )
@@ -2375,7 +2373,7 @@ def send_submit():
             f"<p>This is an outreach email from Ken Research.</p>"
             f"<p>Sent at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>"
         )
-    track_clicks = template_mode not in {"regional_market_outlook", "leaders_perspective"}
+    track_clicks = True
     sequences.append({
         "step": 1,
         "delay_days": 0,
@@ -2778,7 +2776,7 @@ def api_regional_links():
     return jsonify({
         "links": resolved_regional_links(content),
         "errors": problems,
-        "click_tracking": False,
+        "click_tracking": True,
     }), (400 if problems else 200)
 
 
@@ -2859,7 +2857,7 @@ def api_leader_links():
     return jsonify({
         "links": resolved_leader_links(content),
         "errors": problems,
-        "click_tracking": False,
+        "click_tracking": True,
     }), (400 if problems else 200)
 
 
@@ -2927,22 +2925,20 @@ def track_click(token):
         return "Invalid tracked link", 400
 
     recipient = payload["recipient"]
-    domain = recipient.split("@")[-1].lower() if "@" in recipient else ""
-    if domain not in INTERNAL_DOMAINS:
-        execute_db(
-            """INSERT INTO clicks
-               (campaign_id, recipient, step, target_url, timestamp, user_agent, ip_address)
-               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-            (
-                payload["campaign_id"],
-                recipient,
-                payload["step"],
-                payload["target_url"],
-                datetime.now(timezone.utc).isoformat(),
-                request.headers.get("User-Agent", ""),
-                request.remote_addr,
-            ),
-        )
+    execute_db(
+        """INSERT INTO clicks
+           (campaign_id, recipient, step, target_url, timestamp, user_agent, ip_address)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+        (
+            payload["campaign_id"],
+            recipient,
+            payload["step"],
+            payload["target_url"],
+            datetime.now(timezone.utc).isoformat(),
+            request.headers.get("User-Agent", ""),
+            request.remote_addr,
+        ),
+    )
     return redirect(payload["target_url"], code=302)
 
 

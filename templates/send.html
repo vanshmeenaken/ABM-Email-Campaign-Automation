@@ -336,7 +336,7 @@
 
         <div id="regional_builder" class="hidden space-y-6">
           <div class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-900">
-            Build the Regional Market Outlook and upload its hero, key-insights and report-cover images. Sent links remain direct and show their final UTM URL on hover. Redirect-based dashboard click tracking is disabled for this template.
+            Build the Regional Market Outlook and upload its hero, key-insights and report-cover images. Every sent HTTP/HTTPS link is wrapped with the dashboard redirect so unique recipient clicks can be tracked; the redirect then opens the final UTM destination.
           </div>
 
           <div class="grid gap-4 md:grid-cols-3">
@@ -454,7 +454,7 @@
 
         <div id="leader_builder" class="hidden space-y-6">
           <div class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-900">
-            Build the Leader's Perspective newsletter from the approved BFSI design. All copy, CTA destinations, UTM values and images are editable. Official Ken Research logos and personalized unsubscribe handling are fixed automatically.
+            Build the Leader's Perspective newsletter from the approved BFSI design. All copy, CTA destinations, UTM values and images are editable. Official Ken Research logos, personalized unsubscribe handling and unique click tracking are applied automatically.
           </div>
 
           <div class="grid gap-4 md:grid-cols-4">
@@ -538,7 +538,7 @@ Explore the market's wealth segments, fund-management landscape, competitive pos
               <div><h4 class="text-sm font-semibold text-gray-800">Final link review</h4><p class="text-xs text-gray-600 mt-1">Review the exact direct UTM links before previewing or sending.</p></div>
               <button type="button" onclick="reviewLeaderLinks()" class="inline-flex items-center bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-2 rounded-lg">Review final links</button>
             </div>
-            <div id="lead_link_review" class="text-xs text-gray-500">No Render redirect links are applied to this template.</div>
+            <div id="lead_link_review" class="text-xs text-gray-500">The reviewed UTM destinations will be wrapped with Render click redirects when sent.</div>
           </div>
 
           <div class="rounded-lg border border-blue-200 bg-blue-50/40 p-4 space-y-3">
@@ -1252,7 +1252,7 @@ async function reviewRegionalLinks() {
       escapeRegionalReview(label) + '</td><td class="py-2 break-all"><a class="text-blue-700 hover:underline" target="_blank" rel="noopener" href="' +
       escapeRegionalReview(url) + '">' + escapeRegionalReview(url) + '</a></td></tr>'
     ).join('');
-    panel.innerHTML = '<div class="mb-2 font-semibold text-green-700">Validated. These direct URLs will be sent; Render click redirects are off.</div>' +
+    panel.innerHTML = '<div class="mb-2 font-semibold text-green-700">Validated. These are the final destinations; sent links will use Render redirects for unique click tracking.</div>' +
       '<div class="overflow-x-auto"><table class="w-full"><tbody>' + rows + '</tbody></table></div>';
     panel.className = 'text-xs text-gray-700';
     return true;
@@ -1383,7 +1383,7 @@ async function reviewLeaderLinks() {
       escapeRegionalReview(label) + '</td><td class="py-2 break-all"><a class="text-blue-700 hover:underline" target="_blank" rel="noopener" href="' +
       escapeRegionalReview(url) + '">' + escapeRegionalReview(url) + '</a></td></tr>'
     ).join('');
-    panel.innerHTML = '<div class="mb-2 font-semibold text-green-700">Validated. These direct UTM URLs will be sent.</div>' +
+    panel.innerHTML = '<div class="mb-2 font-semibold text-green-700">Validated. These are the final UTM destinations; sent links will use Render redirects for unique click tracking.</div>' +
       '<div class="overflow-x-auto"><table class="w-full"><tbody>' + rows + '</tbody></table></div>';
     panel.className = 'text-xs text-gray-700';
     return true;

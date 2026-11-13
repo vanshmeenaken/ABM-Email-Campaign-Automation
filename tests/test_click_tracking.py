@@ -49,10 +49,10 @@ class ClickTrackingTests(unittest.TestCase):
         self.assertIn(f'href="{unsubscribe_url}"', result)
         self.assertIn('href="mailto:team@example.com"', result)
 
-    def test_sequence_can_keep_direct_utm_links_for_regional_template(self):
+    def test_sequence_tracks_even_when_older_campaign_stored_false(self):
         body = '<a href="https://example.com/report?utm_source=newsletter">Report</a>'
 
-        direct = webapp.apply_sequence_click_tracking(
+        stored_false = webapp.apply_sequence_click_tracking(
             body,
             {"track_clicks": False},
             "https://dashboard.example.com",
@@ -69,8 +69,7 @@ class ClickTrackingTests(unittest.TestCase):
             1,
         )
 
-        self.assertEqual(body, direct)
-        self.assertNotIn("/track/click/", direct)
+        self.assertIn("/track/click/", stored_false)
         self.assertIn("/track/click/", tracked)
 
     @patch.object(webapp, "execute_db")
@@ -92,6 +91,20 @@ class ClickTrackingTests(unittest.TestCase):
         response = self.client.get("/track/click/not-a-valid-token")
 
         self.assertEqual(400, response.status_code)
+
+    @patch.object(webapp, "execute_db")
+    def test_internal_recipient_click_is_recorded(self, execute_db):
+        token = webapp.create_click_token(
+            "campaign-1", "reviewer@kenresearch.com", 1, "https://example.com/report"
+        )
+
+        response = self.client.get(f"/track/click/{token}")
+
+        self.assertEqual(302, response.status_code)
+        execute_db.assert_called_once()
+        self.assertEqual(
+            "reviewer@kenresearch.com", execute_db.call_args.args[1][1]
+        )
 
     @patch.object(webapp, "_load_progress", return_value={"total_recipients": 386})
     @patch.object(webapp, "_load_brief", return_value={"name": "Industry Intelligence"})
