@@ -153,6 +153,47 @@
   {% endif %}
 </div>
 
+<!-- Recipient-level click audit -->
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
+  <div class="px-6 py-4 border-b border-gray-100">
+    <h3 class="font-semibold text-gray-800">Recipient Click Activity</h3>
+    <p class="text-xs text-gray-400 mt-0.5">One row per recipient, destination and email step. Repeated requests for the same link are collapsed.</p>
+  </div>
+  {% if recipient_clicks %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+        <tr>
+          <th class="px-6 py-3 text-left font-medium">Recipient</th>
+          <th class="px-6 py-3 text-center font-medium">Step</th>
+          <th class="px-6 py-3 text-left font-medium">Destination link</th>
+          <th class="px-6 py-3 text-left font-medium">First click</th>
+          <th class="px-6 py-3 text-left font-medium">Last click</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for click in recipient_clicks %}
+        <tr class="hover:bg-gray-50">
+          <td class="px-6 py-3 font-medium text-gray-700 whitespace-nowrap">{{ click.recipient }}</td>
+          <td class="px-6 py-3 text-center text-gray-600">{{ click.step }}</td>
+          <td class="px-6 py-3 max-w-xl">
+            <a href="{{ click.target_url }}" target="_blank" rel="noopener noreferrer"
+               class="text-blue-600 hover:underline break-all" title="{{ click.target_url }}">
+              {{ click.target_url }}
+            </a>
+          </td>
+          <td class="px-6 py-3 text-xs text-gray-500 whitespace-nowrap">{{ click.first_click | friendly_dt }}</td>
+          <td class="px-6 py-3 text-xs text-gray-500 whitespace-nowrap">{{ click.last_click | friendly_dt }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="px-6 py-8 text-center text-sm text-gray-400">No recipient link activity recorded yet.</div>
+  {% endif %}
+</div>
+
 <!-- Campaign segments -->
 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-6">
   <div class="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4 flex-wrap">

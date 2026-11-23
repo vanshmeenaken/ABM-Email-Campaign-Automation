@@ -50,6 +50,16 @@ from newsletter_leader import (
     resolved_leader_links,
     validate_leader_content,
 )
+from newsletter_expert import (
+    EXPERT_SLOTS,
+    IMAGE_FILES as EXPERT_IMAGE_FILES,
+    expert_content,
+    expert_icon_images,
+    prepare_expert_image,
+    render_expert_newsletter,
+    resolved_expert_links,
+    validate_expert_content,
+)
 from unsubscribe import (
     InvalidUnsubscribeToken,
     create_unsubscribe_token,
@@ -2368,6 +2378,27 @@ def send_submit():
         body_1 = render_leader_newsletter(leader_form, "cid", image_src)
         if not request.form.get("subject_1", "").strip():
             subject_1 = content["hero_title"]
+    elif template_mode == "experts_desk":
+        expert_form = request.form.to_dict(flat=True)
+        expert_form["exp_unsubscribe_url"] = UNSUBSCRIBE_URL_PLACEHOLDER
+        content = expert_content(expert_form)
+        problems = validate_expert_content(content)
+        if problems:
+            flash(" ".join(problems), "error")
+            return redirect(url_for("send_form"))
+        try:
+            image_b64 = _resolve_expert_images(request.form)
+        except Exception as e:
+            flash(f"Could not prepare the Expert's Desk images: {e}", "error")
+            return redirect(url_for("send_form"))
+        newsletter_attachments = [
+            (EXPERT_IMAGE_FILES[slot], b64) for slot, b64 in image_b64.items()
+        ]
+        newsletter_attachments.extend(expert_icon_images().items())
+        image_src = {slot: f"cid:{EXPERT_IMAGE_FILES[slot]}" for slot in image_b64}
+        body_1 = render_expert_newsletter(expert_form, "cid", image_src)
+        if not request.form.get("subject_1", "").strip():
+            subject_1 = content["hero_title"]
     else:
         body_1 = request.form.get("body_1", "").strip() or (
             f"<p>This is an outreach email from Ken Research.</p>"
@@ -2567,6 +2598,23 @@ def _resolve_leader_images(form):
     if any(have[slot]["placeholder"] for slot in have):
         raise RuntimeError("Placeholder images are never sent.")
     return {slot: row["data_b64"] for slot, row in have.items()}
+
+
+def _resolve_expert_images(form):
+    """Return the three reviewed Expert's Desk images."""
+    token = (form.get("exp_image_token") or "").strip()
+    if not token:
+        raise RuntimeError("upload and review all three Expert's Desk images before launch.")
+    rows = query_db(
+        "SELECT slot, data_b64, placeholder FROM generated_images WHERE token = %s", (token,)
+    )
+    have = {row["slot"]: row for row in rows if row["slot"] in EXPERT_SLOTS}
+    missing = [slot for slot in EXPERT_SLOTS if slot not in have]
+    if missing:
+        raise RuntimeError(f"upload and review all required images. Missing: {', '.join(missing)}.")
+    if any(have[slot]["placeholder"] for slot in EXPERT_SLOTS):
+        raise RuntimeError("Placeholder images are never sent.")
+    return {slot: have[slot]["data_b64"] for slot in EXPERT_SLOTS}
 
 
 def _generate_industry_images_job(token, specs, industry, slots):
@@ -2896,6 +2944,87 @@ def leader_preview():
     )
 
 
+@app.route("/api/newsletter/expert-images/upload", methods=["POST"])
+def api_expert_image_upload():
+    """Validate, normalize, and persist Expert's Desk images."""
+    import uuid
+
+    content = expert_content(request.form)
+    problems = validate_expert_content(content)
+    if problems:
+        return jsonify({"error": " ".join(problems)}), 400
+
+    token = (request.form.get("exp_image_token") or "").strip() or uuid.uuid4().hex
+    results = {}
+    for slot in EXPERT_SLOTS:
+        upload = request.files.get(f"exp_upload_{slot}")
+        if not upload or not upload.filename:
+            continue
+        try:
+            results[slot] = (prepare_expert_image(slot, upload.read()), False)
+        except ValueError as exc:
+            return jsonify({"error": f"{slot}: {exc}"}), 400
+
+    if not results:
+        return jsonify({"error": "Choose at least one Expert's Desk image to upload."}), 400
+
+    _store_generated_images(token, results)
+    images = {
+        slot: info for slot, info in _stored_image_payload(token).items() if slot in EXPERT_SLOTS
+    }
+    missing = [slot for slot in EXPERT_SLOTS if slot not in images]
+    return jsonify({
+        "token": token,
+        "status": "complete" if not missing else "partial",
+        "images": images,
+        "missing": missing,
+        "provider": "Dashboard upload",
+    })
+
+
+@app.route("/api/newsletter/expert-links", methods=["POST"])
+def api_expert_links():
+    """Return the exact direct links used by the Expert's Desk newsletter."""
+    content = expert_content(request.form)
+    problems = validate_expert_content(content)
+    return jsonify({
+        "links": resolved_expert_links(content),
+        "errors": problems,
+        "click_tracking": True,
+    }), (400 if problems else 200)
+
+
+@app.route("/newsletter/expert-preview", methods=["POST"])
+def expert_preview():
+    """Render the Expert's Desk exactly as it will be sent."""
+    content = expert_content(request.form)
+    problems = validate_expert_content(content)
+    if problems:
+        return jsonify({"error": " ".join(problems)}), 400
+    token = (request.form.get("exp_image_token") or "").strip()
+    image_src = {}
+    if token:
+        for row in query_db(
+            "SELECT slot FROM generated_images WHERE token = %s AND placeholder = FALSE", (token,)
+        ):
+            if row["slot"] in EXPERT_SLOTS:
+                image_src[row["slot"]] = url_for(
+                    "generated_image", token=token, slot=row["slot"], _external=True
+                )
+    missing = [slot for slot in EXPERT_SLOTS if slot not in image_src]
+    if missing:
+        return jsonify({
+            "error": "Upload all three Expert's Desk images before previewing. "
+                     f"Missing: {', '.join(missing)}."
+        }), 400
+    html = render_expert_newsletter(request.form, request.host_url.rstrip("/"), image_src)
+    return Response(
+        f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<title>Expert&#39;s Desk preview</title></head><body style="margin:0">{html}</body></html>',
+        mimetype="text/html",
+    )
+
+
 @app.route("/track/pixel", methods=["GET"])
 def track_pixel():
     campaign_id = request.args.get("campaign_id", "unknown")
@@ -2903,16 +3032,15 @@ def track_pixel():
     step = request.args.get("step", "0")
     user_agent = request.headers.get("User-Agent", "")
     ip_address = request.remote_addr
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
 
-    # Skip tracking for internal team emails
-    domain = recipient.split("@")[-1].lower() if "@" in recipient else ""
-    if domain not in INTERNAL_DOMAINS:
-        execute_db(
-            """INSERT INTO opens (campaign_id, recipient, step, timestamp, user_agent, ip_address)
-               VALUES (%s, %s, %s, %s, %s, %s)""",
-            (campaign_id, recipient, int(step), timestamp, user_agent, ip_address),
-        )
+    # Record internal reviewers too. Open totals remain deduplicated by recipient,
+    # so repeated image loads do not inflate the dashboard's unique-open count.
+    execute_db(
+        """INSERT INTO opens (campaign_id, recipient, step, timestamp, user_agent, ip_address)
+           VALUES (%s, %s, %s, %s, %s, %s)""",
+        (campaign_id, recipient, int(step), timestamp, user_agent, ip_address),
+    )
     return send_file(BytesIO(PIXEL), mimetype="image/png")
 
 
@@ -3181,6 +3309,15 @@ def campaign_detail(campaign_id):
            ORDER BY unique_clicks DESC, last_click DESC""",
         (campaign_id,),
     )
+    recipient_clicks = query_db(
+        """SELECT recipient, target_url, step,
+                  MIN(timestamp) as first_click, MAX(timestamp) as last_click
+           FROM clicks
+           WHERE campaign_id = %s
+           GROUP BY recipient, target_url, step
+           ORDER BY last_click DESC""",
+        (campaign_id,),
+    )
     return render_template(
         "campaign_detail.html",
         brief=brief,
@@ -3190,6 +3327,7 @@ def campaign_detail(campaign_id):
         campaign_segments=campaign_segments,
         click_totals=dict(click_totals),
         link_clicks=[dict(row) for row in link_clicks],
+        recipient_clicks=[dict(row) for row in recipient_clicks],
     )
 
 

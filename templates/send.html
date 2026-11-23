@@ -100,7 +100,7 @@
 
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-2">Step 1 Composer</label>
-          <div class="grid gap-3 md:grid-cols-5">
+          <div class="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
             <label class="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 cursor-pointer">
               <input type="radio" name="template_mode" value="custom" checked onchange="toggleTemplateMode()"
                      class="mt-1 text-blue-600 focus:ring-blue-500 border-gray-300">
@@ -139,6 +139,14 @@
               <span>
                 <span class="block text-sm font-semibold text-gray-800">Leader's Perspective</span>
                 <span class="block text-xs text-gray-500 mt-0.5">Leader commentary, related research and featured market intelligence.</span>
+              </span>
+            </label>
+            <label class="flex items-start gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 cursor-pointer">
+              <input type="radio" name="template_mode" value="experts_desk" onchange="toggleTemplateMode()"
+                     class="mt-1 text-blue-600 focus:ring-blue-500 border-gray-300">
+              <span>
+                <span class="block text-sm font-semibold text-gray-800">Expert's Desk</span>
+                <span class="block text-xs text-gray-500 mt-0.5">Expert interview, key takeaways and featured market intelligence.</span>
               </span>
             </label>
           </div>
@@ -562,6 +570,117 @@ Explore the market's wealth segments, fund-management landscape, competitive pos
                 <p class="mt-2 text-[11px] text-gray-400">{{ note }}</p>
                 <label class="mt-2 block cursor-pointer text-xs text-blue-700 hover:underline">Upload / replace
                   <input type="file" name="lead_upload_{{ slot }}" accept="image/png,image/jpeg,image/webp,image/avif" class="hidden" onchange="uploadLeaderImages()" />
+                </label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <div id="expert_builder" class="hidden space-y-6">
+          <div class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-900">
+            Build the Expert's Desk newsletter from the approved reference design. Copy, CTA destinations, UTM values and all three images are editable. The official Ken Research logo, personalized unsubscribe handling and unique click tracking are applied automatically.
+          </div>
+
+          <div class="grid gap-4 md:grid-cols-2">
+            <div><label class="block text-sm font-medium text-gray-700 mb-1">Template label</label><input name="exp_section_label" type="text" value="Expert's Desk" class="{{ ind_input }}" /></div>
+            <div><label class="block text-sm font-medium text-gray-700 mb-1">Issue</label><input name="exp_issue_label" type="text" value="November 2026 | Issue 02" class="{{ ind_input }}" /></div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Brand destination and UTM settings</h4>
+            <input name="exp_brand_url" type="url" value="https://www.kenresearch.com" aria-label="Header logo destination" class="{{ ind_input }}" />
+            <div class="grid gap-3 md:grid-cols-3">
+              <input name="exp_utm_source" type="text" value="newsletter" aria-label="UTM source" placeholder="utm_source" class="{{ ind_input }}" />
+              <input name="exp_utm_medium" type="text" value="email" aria-label="UTM medium" placeholder="utm_medium" class="{{ ind_input }}" />
+              <input name="exp_utm_campaign" type="text" value="experts_desk" aria-label="UTM campaign" placeholder="utm_campaign" class="{{ ind_input }}" />
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Expert interview</h4>
+            <input name="exp_hero_label" type="text" value="Expert Interview" class="{{ ind_input }}" />
+            <textarea name="exp_hero_title" rows="2" class="{{ ind_input }} resize-y">India's Data Centre Busbar Opportunity: Who Will Win the Next Wave of Demand?</textarea>
+            <textarea name="exp_hero_body" rows="3" class="{{ ind_input }} resize-y">AI-led infrastructure is pushing power requirements higher. But certification, compatibility and EPC specifications determine who wins.</textarea>
+            <div class="grid gap-3 md:grid-cols-2">
+              <input name="exp_hero_cta_text" type="text" value="Read the Full Expert Interview" class="{{ ind_input }}" />
+              <input name="exp_hero_cta_url" type="url" placeholder="https://www.kenresearch.com/..." class="{{ ind_input }}" />
+            </div>
+            <p class="text-xs text-amber-700">Use the final interview URL. The generic Ken Research homepage is blocked for this CTA.</p>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Expert profile</h4>
+            <div class="grid gap-3 md:grid-cols-2">
+              <input name="exp_expert_label" type="text" value="Meet the Expert" class="{{ ind_input }}" />
+              <input name="exp_expert_name" type="text" value="Manish Israni" class="{{ ind_input }}" />
+              <input name="exp_expert_role" type="text" value="Chief Operating Officer" class="{{ ind_input }}" />
+              <input name="exp_expert_company" type="text" value="Olive Intelligence Pvt. Ltd." class="{{ ind_input }}" />
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-4">
+            <h4 class="text-sm font-semibold text-gray-800">Key takeaways from the conversation</h4>
+            <input name="exp_takeaways_label" type="text" value="Key Takeaways from the Conversation" class="{{ ind_input }}" />
+            {% for n, title, body in [
+              (1, "AI redefines power distribution", "AI racks can approach 100 kW; modular busbars are valuable downstream of the UPS."),
+              (2, "Approval determines access", "IEC compliance, system compatibility and EPC specifications shape vendor selection."),
+              (3, "Localisation must deliver reliability", "Domestic suppliers need competitive economics and proven technical performance.")
+            ] %}
+            <div class="rounded-lg border border-gray-100 bg-gray-50 p-3 space-y-2">
+              <div class="text-xs font-semibold text-gray-500">Takeaway {{ n }}</div>
+              <input name="exp_takeaway{{ n }}_title" type="text" value="{{ title }}" class="{{ ind_input }}" />
+              <textarea name="exp_takeaway{{ n }}_body" rows="2" class="{{ ind_input }} resize-y">{{ body }}</textarea>
+            </div>
+            {% endfor %}
+            <input name="exp_takeaway_note" type="text" value="Figures are indicative expert observations." class="{{ ind_input }}" />
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Featured market intelligence</h4>
+            <input name="exp_report_label" type="text" value="Featured Market Intelligence" class="{{ ind_input }}" />
+            <textarea name="exp_report_title" rows="2" class="{{ ind_input }} resize-y">India Data Centre Colocation Competition Benchmarking 2025</textarea>
+            <textarea name="exp_report_body" rows="4" class="{{ ind_input }} resize-y">India's colocation market recorded about 1,123 MW of IT-load inventory in H1 2025 with 4.3% vacancy. The research compares commissioned IT load, PUE, hyperscaler tenant share, colocation revenue and upcoming capacity pipelines—helping infrastructure suppliers evaluate operator expansion.</textarea>
+            <div class="grid gap-3 md:grid-cols-2">
+              <input name="exp_report_cta_text" type="text" value="Explore the Data Centre Benchmarking" class="{{ ind_input }}" />
+              <input name="exp_report_cta_url" type="url" placeholder="https://www.kenresearch.com/..." class="{{ ind_input }}" />
+            </div>
+            <p class="text-xs text-amber-700">Use the final report URL. The generic Ken Research homepage is blocked for this CTA.</p>
+          </div>
+
+          <div class="rounded-lg border border-gray-200 p-4 space-y-3">
+            <h4 class="text-sm font-semibold text-gray-800">Footer links</h4>
+            <div class="grid gap-3 md:grid-cols-2">
+              <input name="exp_contact_url" type="url" value="https://www.kenresearch.com/contact-us" aria-label="Contact Us destination" class="{{ ind_input }}" />
+              <input type="text" value="Unsubscribe is personalized automatically" disabled class="{{ ind_input }} bg-gray-50 text-gray-500" />
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-3">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <div><h4 class="text-sm font-semibold text-gray-800">Final link review</h4><p class="text-xs text-gray-600 mt-1">Review the exact direct UTM destinations before previewing or sending.</p></div>
+              <button type="button" onclick="reviewExpertLinks()" class="inline-flex items-center bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-2 rounded-lg">Review final links</button>
+            </div>
+            <div id="exp_link_review" class="text-xs text-gray-500">The reviewed UTM destinations will be wrapped with Render click redirects when sent.</div>
+          </div>
+
+          <div class="rounded-lg border border-blue-200 bg-blue-50/40 p-4 space-y-3">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <h4 class="text-sm font-semibold text-gray-800">Expert's Desk images</h4>
+              <button type="button" onclick="previewExpertNewsletter()" class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm">Preview newsletter</button>
+            </div>
+            <input type="hidden" name="exp_image_token" id="exp_image_token" value="" />
+            <p id="exp_image_status" class="text-xs text-gray-500">Upload all three images. PNG, JPEG, WebP and AVIF files are supported.</p>
+            <div class="grid gap-3 grid-cols-1 md:grid-cols-3">
+              {% for slot, label, note, ratio in [("hero", "1. Interview hero", "Minimum 600 x 340", "7 / 4"), ("portrait", "2. Expert portrait", "Minimum 400 x 180", "15 / 7"), ("report", "3. Report image", "Minimum 400 x 300", "13 / 10")] %}
+              <div class="rounded-lg border border-gray-200 bg-white p-2 text-center">
+                <div class="bg-gray-100 rounded overflow-hidden flex items-center justify-center" style="aspect-ratio: {{ ratio }}">
+                  <img id="exp_img_{{ slot }}" alt="" class="hidden w-full h-full object-cover" />
+                  <span id="exp_ph_{{ slot }}" class="text-xs text-gray-400">{{ label }}</span>
+                </div>
+                <p class="mt-2 text-[11px] text-gray-400">{{ note }}</p>
+                <label class="mt-2 block cursor-pointer text-xs text-blue-700 hover:underline">Upload / replace
+                  <input type="file" name="exp_upload_{{ slot }}" accept="image/png,image/jpeg,image/webp,image/avif" class="hidden" onchange="uploadExpertImages()" />
                 </label>
               </div>
               {% endfor %}
@@ -1076,9 +1195,10 @@ function toggleTemplateMode() {
   document.getElementById('industry_builder').classList.toggle('hidden', mode !== 'industry_intelligence');
   document.getElementById('regional_builder').classList.toggle('hidden', mode !== 'regional_market_outlook');
   document.getElementById('leader_builder').classList.toggle('hidden', mode !== 'leaders_perspective');
+  document.getElementById('expert_builder').classList.toggle('hidden', mode !== 'experts_desk');
   // Newsletter subjects default to their hero headline when left empty.
   const subject = document.querySelector('input[name="subject_1"]');
-  if (subject) subject.required = !['industry_intelligence', 'regional_market_outlook', 'leaders_perspective'].includes(mode);
+  if (subject) subject.required = !['industry_intelligence', 'regional_market_outlook', 'leaders_perspective', 'experts_desk'].includes(mode);
   toggleNewsletterTemplate();
 }
 
@@ -1480,6 +1600,132 @@ async function previewLeaderNewsletter() {
   }
 }
 
+function expertFormData() {
+  const fd = new FormData();
+  document.querySelectorAll('#expert_builder [name]').forEach(el => {
+    if (el.type === 'file') {
+      if (el.files.length) fd.append(el.name, el.files[0]);
+    } else {
+      fd.append(el.name, el.value);
+    }
+  });
+  return fd;
+}
+
+async function reviewExpertLinks() {
+  const panel = document.getElementById('exp_link_review');
+  panel.textContent = 'Checking the exact sent URLs...';
+  panel.className = 'text-xs text-gray-500';
+  try {
+    const res = await fetch('/api/newsletter/expert-links', { method: 'POST', body: expertFormData() });
+    const data = await readDashboardJson(res, 'The Expert link review');
+    if (!res.ok) {
+      panel.textContent = (data.errors || [data.error || 'Correct the invalid links.']).join(' ');
+      panel.className = 'text-xs text-red-700';
+      return false;
+    }
+    const rows = Object.entries(data.links).map(([label, url]) =>
+      '<tr class="border-t border-amber-200"><td class="py-2 pr-3 font-semibold align-top whitespace-nowrap">' +
+      escapeRegionalReview(label) + '</td><td class="py-2 break-all"><a class="text-blue-700 hover:underline" target="_blank" rel="noopener" href="' +
+      escapeRegionalReview(url) + '">' + escapeRegionalReview(url) + '</a></td></tr>'
+    ).join('');
+    panel.innerHTML = '<div class="mb-2 font-semibold text-green-700">Validated. These are the final UTM destinations; sent links will use Render redirects for unique click tracking.</div>' +
+      '<div class="overflow-x-auto"><table class="w-full"><tbody>' + rows + '</tbody></table></div>';
+    panel.className = 'text-xs text-gray-700';
+    return true;
+  } catch (e) {
+    panel.textContent = e.message;
+    panel.className = 'text-xs text-red-700';
+    return false;
+  }
+}
+
+function markExpertLinkReviewOutdated() {
+  const panel = document.getElementById('exp_link_review');
+  if (!panel) return;
+  panel.textContent = 'Links or UTM settings changed. Review the final links again.';
+  panel.className = 'text-xs text-amber-700';
+}
+
+let expertUploadInFlight = false;
+
+async function uploadExpertImages() {
+  if (expertUploadInFlight) return;
+  expertUploadInFlight = true;
+  const inputs = document.querySelectorAll('[name^="exp_upload_"]');
+  inputs.forEach(input => { input.disabled = true; });
+  const status = document.getElementById('exp_image_status');
+  status.textContent = 'Validating and preparing the uploaded image...';
+  status.className = 'text-xs text-gray-500';
+  try {
+    const res = await fetch('/api/newsletter/expert-images/upload', { method: 'POST', body: expertFormData() });
+    const data = await readDashboardJson(res, 'The Expert image upload');
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    document.getElementById('exp_image_token').value = data.token;
+    Object.entries(data.images).forEach(([slot, info]) => {
+      if (!['hero', 'portrait', 'report'].includes(slot)) return;
+      const img = document.getElementById('exp_img_' + slot);
+      img.src = info.url;
+      img.classList.remove('hidden');
+      document.getElementById('exp_ph_' + slot).classList.add('hidden');
+    });
+    inputs.forEach(input => { input.value = ''; });
+    if (data.missing.length) {
+      status.textContent = 'Image saved. Still upload: ' + data.missing.join(', ') + '.';
+      status.className = 'text-xs text-amber-700';
+    } else {
+      status.textContent = 'All three images are ready. Review the links and newsletter preview, then launch.';
+      status.className = 'text-xs text-green-700';
+    }
+  } catch (e) {
+    status.textContent = 'Could not upload the image: ' + e.message;
+    status.className = 'text-xs text-red-600';
+  } finally {
+    expertUploadInFlight = false;
+    inputs.forEach(input => { input.disabled = false; });
+  }
+}
+
+async function previewExpertNewsletter() {
+  const win = window.open('', '_blank');
+  const status = document.getElementById('exp_image_status');
+  if (!win) {
+    status.textContent = 'Allow pop-ups for this dashboard to open the newsletter preview.';
+    status.className = 'text-xs text-red-600';
+    return;
+  }
+  if (!(await reviewExpertLinks())) {
+    win.close();
+    return;
+  }
+  win.document.write('<p style="font-family:Arial;padding:24px">Preparing Expert\'s Desk preview...</p>');
+  const missing = ['hero', 'portrait', 'report'].filter(slot =>
+    document.getElementById('exp_img_' + slot).classList.contains('hidden')
+  );
+  if (missing.length) {
+    win.close();
+    status.textContent = 'Upload all three images before previewing. Missing: ' + missing.join(', ') + '.';
+    status.className = 'text-xs text-red-600';
+    return;
+  }
+  try {
+    const res = await fetch('/newsletter/expert-preview', { method: 'POST', body: expertFormData() });
+    const html = await res.text();
+    if (!res.ok) {
+      let message = 'Could not open the Expert\'s Desk preview.';
+      try { message = JSON.parse(html).error || message; } catch (_) {}
+      throw new Error(message);
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  } catch (e) {
+    win.close();
+    status.textContent = e.message;
+    status.className = 'text-xs text-red-600';
+  }
+}
+
 function toggleNewsletterTemplate() {
   const selected = document.querySelector('input[name="newsletter_template"]:checked');
   const template = selected ? selected.value : 'overview';
@@ -1651,6 +1897,9 @@ document.addEventListener('DOMContentLoaded', function() {
     '#leader_builder input[name$="_url"], #leader_builder input[name^="lead_social_"], ' +
     '#leader_builder input[name^="lead_utm_"]'
   ).forEach(field => field.addEventListener('input', markLeaderLinkReviewOutdated));
+  document.querySelectorAll(
+    '#expert_builder input[name$="_url"], #expert_builder input[name^="exp_utm_"]'
+  ).forEach(field => field.addEventListener('input', markExpertLinkReviewOutdated));
 });
 </script>
 

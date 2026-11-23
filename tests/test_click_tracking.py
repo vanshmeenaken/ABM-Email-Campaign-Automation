@@ -1,6 +1,7 @@
 import os
 import re
 import unittest
+from html import unescape
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,6 +11,8 @@ os.environ.setdefault("DATABASE_URL", "postgresql://unused")
 
 with patch("psycopg2.connect"):
     import app as webapp
+
+from newsletter_expert import render_expert_newsletter
 
 
 class ClickTrackingTests(unittest.TestCase):
@@ -106,6 +109,57 @@ class ClickTrackingTests(unittest.TestCase):
             "reviewer@kenresearch.com", execute_db.call_args.args[1][1]
         )
 
+    @patch.object(webapp, "execute_db")
+    def test_internal_recipient_open_is_recorded(self, execute_db):
+        response = self.client.get(
+            "/track/pixel?campaign_id=campaign-1&recipient=reviewer@kenresearch.com&step=1"
+        )
+
+        self.assertEqual(200, response.status_code)
+        execute_db.assert_called_once()
+        params = execute_db.call_args.args[1]
+        self.assertEqual(("campaign-1", "reviewer@kenresearch.com", 1), params[:3])
+
+    def test_expert_newsletter_tracks_every_destination_except_unsubscribe(self):
+        unsubscribe_url = "https://dashboard.example.com/unsubscribe/signed"
+        form = {
+            "exp_brand_url": "https://www.kenresearch.com",
+            "exp_hero_title": "Expert interview",
+            "exp_hero_body": "Interview summary",
+            "exp_hero_cta_url": "https://example.com/interview",
+            "exp_expert_name": "Expert",
+            "exp_expert_role": "Chief Operating Officer",
+            "exp_expert_company": "Example Ltd.",
+            "exp_takeaway1_title": "One", "exp_takeaway1_body": "First",
+            "exp_takeaway2_title": "Two", "exp_takeaway2_body": "Second",
+            "exp_takeaway3_title": "Three", "exp_takeaway3_body": "Third",
+            "exp_report_title": "Featured report",
+            "exp_report_body": "Report summary",
+            "exp_report_cta_url": "https://example.com/report",
+            "exp_contact_url": "https://www.kenresearch.com/contact-us",
+            "exp_unsubscribe_url": unsubscribe_url,
+        }
+        body = render_expert_newsletter(form, "cid", {})
+        tracked = webapp.apply_sequence_click_tracking(
+            body, {}, "https://dashboard.example.com", "campaign-1",
+            "reader@example.com", 1, unsubscribe_url=unsubscribe_url,
+        )
+
+        hrefs = [unescape(value) for value in re.findall(r'href="([^"]+)"', tracked)]
+        tracked_hrefs = [value for value in hrefs if "/track/click/" in value]
+        self.assertEqual(4, len(tracked_hrefs))
+        self.assertIn(unsubscribe_url, hrefs)
+        destinations = {
+            webapp.read_click_token(value.rsplit("/", 1)[-1])["target_url"]
+            for value in tracked_hrefs
+        }
+        self.assertEqual({
+            "https://www.kenresearch.com?utm_source=newsletter&utm_medium=email&utm_campaign=experts_desk",
+            "https://example.com/interview?utm_source=newsletter&utm_medium=email&utm_campaign=experts_desk",
+            "https://example.com/report?utm_source=newsletter&utm_medium=email&utm_campaign=experts_desk",
+            "https://www.kenresearch.com/contact-us?utm_source=newsletter&utm_medium=email&utm_campaign=experts_desk",
+        }, destinations)
+
     @patch.object(webapp, "_load_progress", return_value={"total_recipients": 386})
     @patch.object(webapp, "_load_brief", return_value={"name": "Industry Intelligence"})
     @patch.object(webapp, "query_db")
@@ -139,6 +193,8 @@ class ClickTrackingTests(unittest.TestCase):
         self.assertNotIn("Total Clicks", dashboard)
         self.assertIn("Unique clicks", campaign_detail)
         self.assertNotIn("Total clicks", campaign_detail)
+        self.assertIn("Recipient Click Activity", campaign_detail)
+        self.assertIn("Repeated requests for the same link are collapsed", campaign_detail)
 
 
 if __name__ == "__main__":
