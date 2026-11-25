@@ -75,6 +75,23 @@ class ClickTrackingTests(unittest.TestCase):
         self.assertIn("/track/click/", stored_false)
         self.assertIn("/track/click/", tracked)
 
+    def test_branded_click_tracking_host_can_replace_render_host(self):
+        with patch.dict(
+            os.environ,
+            {"CLICK_TRACKING_PUBLIC_URL": "https://links.kenresearch.example/"},
+        ):
+            self.assertEqual(
+                "https://links.kenresearch.example",
+                webapp.get_click_tracker_url("https://service.onrender.com"),
+            )
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CLICK_TRACKING_PUBLIC_URL", None)
+            self.assertEqual(
+                "https://service.onrender.com",
+                webapp.get_click_tracker_url("https://service.onrender.com"),
+            )
+
     @patch.object(webapp, "execute_db")
     def test_click_route_records_event_and_redirects(self, execute_db):
         target = "https://example.com/report"

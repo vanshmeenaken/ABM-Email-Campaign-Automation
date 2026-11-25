@@ -1173,7 +1173,7 @@ def bulk_send_worker(campaign_id, account_num, recipients, sequences, tracker_ur
                     unsubscribe_url = build_unsubscribe_url(email, campaign_id, tracker_url)
                     p_body = apply_unsubscribe_url(p_body, unsubscribe_url)
                     p_body = apply_sequence_click_tracking(
-                        p_body, seq, tracker_url, campaign_id, email, step_num,
+                        p_body, seq, get_click_tracker_url(tracker_url), campaign_id, email, step_num,
                         unsubscribe_url=unsubscribe_url,
                     )
                     graph_atts = newsletter_inline_attachments(p_body)
@@ -2259,6 +2259,14 @@ def get_tracker_url():
         return f"http://{ip}:5000"
     except Exception:
         return "http://localhost:5000"
+
+
+def get_click_tracker_url(default_tracker_url):
+    """Use a branded public redirect host when one has been configured."""
+    branded_url = os.getenv("CLICK_TRACKING_PUBLIC_URL", "").strip().rstrip("/")
+    if branded_url.lower().startswith(("http://", "https://")):
+        return branded_url
+    return (default_tracker_url or "").strip().rstrip("/")
 
 
 @app.route("/send", methods=["GET"])

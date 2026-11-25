@@ -143,6 +143,24 @@ class ExpertNewsletterTests(unittest.TestCase):
                 self.assertEqual(SLOT_SIZES[slot], output.size)
                 self.assertEqual("JPEG", output.format)
 
+    def test_transparent_portrait_is_contained_on_pale_background(self):
+        portrait = Image.new("RGBA", (500, 600), (0, 0, 0, 0))
+        for x in range(120, 380):
+            for y in range(20, 600):
+                portrait.putpixel((x, y), (20, 40, 80, 255))
+        upload = BytesIO()
+        portrait.save(upload, "PNG")
+
+        result = prepare_expert_image("portrait", upload.getvalue())
+        with Image.open(BytesIO(result)) as output:
+            self.assertEqual((472, 533), output.size)
+            # Transparent space is composited onto the template background,
+            # not converted into a black rectangle.
+            red, green, blue = output.getpixel((0, 0))
+            self.assertGreater(red, 220)
+            self.assertGreater(green, 220)
+            self.assertGreater(blue, 220)
+
     def test_dashboard_exposes_expert_builder_and_three_uploads(self):
         response = self.client.get("/send")
         self.assertEqual(200, response.status_code)

@@ -5,13 +5,13 @@ from html import escape
 from io import BytesIO
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 
 DEFAULT_URL = "https://www.kenresearch.com"
 CANVAS_WIDTH = 720
 EXPERT_SLOTS = ("hero", "portrait", "report")
-SLOT_SIZES = {"hero": (840, 480), "portrait": (600, 280), "report": (520, 400)}
+SLOT_SIZES = {"hero": (840, 480), "portrait": (472, 533), "report": (520, 400)}
 IMAGE_FILES = {
     "hero": "expert-desk-hero.jpg",
     "portrait": "expert-desk-portrait.jpg",
@@ -170,7 +170,7 @@ def prepare_expert_image(slot, raw, max_bytes=12 * 1024 * 1024):
             raise ValueError("The upload must be a PNG, JPEG, WebP, or AVIF image.")
         minimums = {
             "hero": (600, 340),
-            "portrait": (400, 180),
+            "portrait": (400, 450),
             "report": (400, 300),
         }
         minimum_width, minimum_height = minimums[slot]
@@ -182,21 +182,37 @@ def prepare_expert_image(slot, raw, max_bytes=12 * 1024 * 1024):
         if source.width > 8192 or source.height > 8192:
             raise ValueError("The uploaded image dimensions are too large.")
         target_width, target_height = SLOT_SIZES[slot]
-        source = source.convert("RGB")
-        ratio = target_width / target_height
-        if source.width / source.height > ratio:
-            width = int(source.height * ratio)
-            left = (source.width - width) // 2
-            source = source.crop((left, 0, left + width, source.height))
+        if slot == "portrait":
+            # Keep a tall portrait intact instead of forcing it through the
+            # landscape crop that was used by the previous image slot.
+            source = source.convert("RGBA")
+            alpha_bounds = source.getchannel("A").getbbox()
+            if alpha_bounds:
+                source = source.crop(alpha_bounds)
+            source = ImageOps.contain(
+                source, (target_width, target_height), Image.Resampling.LANCZOS
+            )
+            canvas = Image.new("RGBA", (target_width, target_height), (243, 247, 251, 255))
+            left = (target_width - source.width) // 2
+            top = target_height - source.height
+            canvas.alpha_composite(source, (left, top))
+            source = canvas.convert("RGB")
         else:
-            height = int(source.width / ratio)
-            top = (source.height - height) // 2
-            source = source.crop((0, top, source.width, top + height))
-        source = source.resize((target_width, target_height), Image.Resampling.LANCZOS)
+            source = source.convert("RGB")
+            ratio = target_width / target_height
+            if source.width / source.height > ratio:
+                width = int(source.height * ratio)
+                left = (source.width - width) // 2
+                source = source.crop((left, 0, left + width, source.height))
+            else:
+                height = int(source.width / ratio)
+                top = (source.height - height) // 2
+                source = source.crop((0, top, source.width, top + height))
+            source = source.resize((target_width, target_height), Image.Resampling.LANCZOS)
         draw = ImageDraw.Draw(source)
         if slot == "hero":
             draw.polygon([(0, 0), (175, 0), (0, target_height)], fill=(255, 255, 255))
-        elif slot in {"portrait", "report"}:
+        elif slot == "report":
             draw.polygon(
                 [(target_width - 95, 0), (target_width, 0), (target_width, target_height),
                  (target_width - 205, target_height)],
@@ -267,10 +283,10 @@ def render_expert_newsletter(form, asset_base_url="", image_src=None):
     icons = (ICON_FILES["power"], ICON_FILES["approval"], ICON_FILES["localisation"])
     for index in range(1, 4):
         divider = "border-left:1px solid #b9c5d9;" if index > 1 else ""
-        takeaways += f'''<td class="exp-stack" width="33.33%" align="center" valign="top" style="padding:5px 20px 11px;{divider}">
+        takeaways += f'''<td class="exp-stack" width="33.33%" align="center" valign="top" style="padding:10px 24px 18px;{divider}">
           <img src="{icon_asset(icons[index - 1])}" width="48" height="40" alt="" style="display:block;width:48px;height:40px;margin:0 auto;border:0;">
-          <div style="padding-top:5px;font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:18px;font-weight:700;color:{NAVY};">{_text(content[f'takeaway{index}_title'])}</div>
-          <div style="padding-top:9px;font-family:Arial,sans-serif;font-size:12px;line-height:16px;color:{GREY};">{_text(content[f'takeaway{index}_body'])}</div>
+          <div style="padding-top:8px;font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:21px;font-weight:700;color:{NAVY};">{_text(content[f'takeaway{index}_title'])}</div>
+          <div style="padding-top:11px;font-family:Arial,sans-serif;font-size:12px;line-height:18px;color:{GREY};">{_text(content[f'takeaway{index}_body'])}</div>
         </td>'''
 
     return f'''<div style="display:none;font-size:1px;color:#fff;max-height:0;overflow:hidden;">{_text(content['hero_title'])}</div>
@@ -285,15 +301,15 @@ def render_expert_newsletter(form, asset_base_url="", image_src=None):
     <td class="exp-stack" width="320" valign="top" style="padding:17px 13px 13px 18px;"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:{NAVY};"><span style="display:inline-block;width:28px;border-top:3px solid {RED};font-size:0;line-height:0;vertical-align:middle;">&nbsp;</span>&nbsp;&nbsp;{_text(content['hero_label'])}</div><div style="padding-top:10px;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:23px;font-weight:700;color:{NAVY};">{_text(content['hero_title'])}</div><div style="padding:9px 0 13px;font-family:Arial,sans-serif;font-size:12px;line-height:15px;color:{GREY};">{_text(content['hero_body'])}</div><table role="presentation" width="270" cellpadding="0" cellspacing="0"><tr><td height="36" align="center" bgcolor="{RED}" style="height:36px;border-radius:5px;"><a href="{_url(links['Expert interview'])}" style="display:block;font-family:Arial,sans-serif;font-size:13px;line-height:36px;font-weight:700;color:#fff;text-decoration:none;">{_text(content['hero_cta_text'])}&nbsp;&nbsp;&#8594;</a></td></tr></table></td>
     <td class="exp-stack" width="400" valign="top"><img class="exp-img" src="{image_src.get('hero','')}" width="400" height="{hero_height}" alt="Expert interview" style="display:block;width:400px;height:{hero_height}px;object-fit:cover;border:0;"></td>
   </tr></table></td></tr>
-  <tr><td bgcolor="{PALE}" style="padding:0 14px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-    <td class="exp-stack" width="255"><img class="exp-img" src="{image_src.get('portrait','')}" width="255" height="118" alt="{_text(content['expert_name'])}" style="display:block;width:255px;height:118px;object-fit:cover;border:0;"></td>
-    <td class="exp-stack" valign="middle" style="padding-left:20px;"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:2.2px;text-transform:uppercase;color:{NAVY};"><span style="display:inline-block;height:14px;border-left:3px solid {RED};vertical-align:-3px;margin-right:16px;">&nbsp;</span>{_text(content['expert_label'])}</div><div style="padding-top:5px;font-family:Georgia,'Times New Roman',serif;font-size:28px;line-height:30px;font-weight:700;color:{NAVY};">{_text(content['expert_name'])}</div><div style="font-family:Arial,sans-serif;font-size:13px;line-height:18px;color:{GREY};">{_text(content['expert_role'])}<br><strong style="color:{NAVY};">{_text(content['expert_company'])}</strong></div></td>
+  <tr><td bgcolor="{PALE}" style="padding:18px 22px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+    <td class="exp-stack" width="230" valign="bottom"><img class="exp-img" src="{image_src.get('portrait','')}" width="230" height="260" alt="{_text(content['expert_name'])}" style="display:block;width:230px;height:260px;object-fit:contain;border:0;"></td>
+    <td class="exp-stack" valign="middle" style="padding:18px 22px 18px 30px;"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:2.2px;text-transform:uppercase;color:{NAVY};"><span style="display:inline-block;height:14px;border-left:3px solid {RED};vertical-align:-3px;margin-right:16px;">&nbsp;</span>{_text(content['expert_label'])}</div><div style="padding-top:10px;font-family:Georgia,'Times New Roman',serif;font-size:28px;line-height:34px;font-weight:700;color:{NAVY};">{_text(content['expert_name'])}</div><div style="padding-top:6px;font-family:Arial,sans-serif;font-size:13px;line-height:20px;color:{GREY};">{_text(content['expert_role'])}<br><strong style="color:{NAVY};">{_text(content['expert_company'])}</strong></div></td>
   </tr></table></td></tr>
-  <tr><td style="padding:14px 14px 7px;">{_section_heading(content['takeaways_label'])}</td></tr>
-  <tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{takeaways}</tr></table><div style="padding:1px 18px 13px;font-family:Arial,sans-serif;font-size:10px;font-style:italic;color:{GREY};">{_text(content['takeaway_note'])}</div></td></tr>
-  <tr><td style="padding:0 14px 16px;"><table role="presentation" width="692" cellpadding="0" cellspacing="0" bgcolor="{PALE}" style="width:692px;background:{PALE};border-radius:6px;"><tr>
-    <td class="exp-stack" width="250" valign="top" style="padding:10px;"><img class="exp-img" src="{image_src.get('report','')}" width="235" height="180" alt="Featured market intelligence" style="display:block;width:235px;height:180px;object-fit:cover;border:0;"></td>
-    <td class="exp-stack" valign="top" style="padding:11px 15px 11px 5px;"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:{NAVY};">{_text(content['report_label'])}</div><div style="padding-top:6px;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:23px;font-weight:700;color:{NAVY};">{_text(content['report_title'])}</div><div style="padding:8px 0;font-family:Arial,sans-serif;font-size:11.5px;line-height:15px;color:{GREY};">{_text(content['report_body'])}</div><a href="{_url(links['Featured intelligence'])}" style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:{RED};text-decoration:underline;">{_text(content['report_cta_text'])}&nbsp;&nbsp;&#8594;</a></td>
+  <tr><td style="padding:22px 18px 10px;">{_section_heading(content['takeaways_label'])}</td></tr>
+  <tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{takeaways}</tr></table><div style="padding:2px 24px 20px;font-family:Arial,sans-serif;font-size:10px;line-height:15px;font-style:italic;color:{GREY};">{_text(content['takeaway_note'])}</div></td></tr>
+  <tr><td style="padding:4px 18px 22px;"><table role="presentation" width="684" cellpadding="0" cellspacing="0" bgcolor="{PALE}" style="width:684px;background:{PALE};border-radius:6px;"><tr>
+    <td class="exp-stack" width="260" valign="top" style="padding:16px;"><img class="exp-img" src="{image_src.get('report','')}" width="235" height="180" alt="Featured market intelligence" style="display:block;width:235px;height:180px;object-fit:cover;border:0;"></td>
+    <td class="exp-stack" valign="top" style="padding:18px 22px 18px 8px;"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:{NAVY};">{_text(content['report_label'])}</div><div style="padding-top:9px;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:27px;font-weight:700;color:{NAVY};">{_text(content['report_title'])}</div><div style="padding:11px 0 13px;font-family:Arial,sans-serif;font-size:11.5px;line-height:18px;color:{GREY};">{_text(content['report_body'])}</div><a href="{_url(links['Featured intelligence'])}" style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:{RED};text-decoration:underline;">{_text(content['report_cta_text'])}&nbsp;&nbsp;&#8594;</a></td>
   </tr></table></td></tr>
   <tr><td style="padding:13px 16px 16px;border-top:1px solid {NAVY};" align="right"><a href="{_url(links['Contact Us'])}" style="font-family:Arial,sans-serif;font-size:11px;color:#222;text-decoration:none;">Contact Us</a><span style="color:#aaa;">&nbsp;&nbsp;|&nbsp;&nbsp;</span><a href="{_url(content['unsubscribe_url'])}" style="font-family:Arial,sans-serif;font-size:11px;color:#222;text-decoration:none;">Unsubscribe</a></td></tr>
 </table></td></tr></table>'''

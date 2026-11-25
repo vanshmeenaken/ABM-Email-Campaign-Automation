@@ -661,7 +661,7 @@ Explore the market's wealth segments, fund-management landscape, competitive pos
               <div><h4 class="text-sm font-semibold text-gray-800">Final link review</h4><p class="text-xs text-gray-600 mt-1">Review the exact direct UTM destinations before previewing or sending.</p></div>
               <button type="button" onclick="reviewExpertLinks()" class="inline-flex items-center bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-2 rounded-lg">Review final links</button>
             </div>
-            <div id="exp_link_review" class="text-xs text-gray-500">The reviewed UTM destinations will be wrapped with Render click redirects when sent.</div>
+            <div id="exp_link_review" class="text-xs text-gray-500">The reviewed UTM destinations will be wrapped with the configured click-tracking domain when sent.</div>
           </div>
 
           <div class="rounded-lg border border-blue-200 bg-blue-50/40 p-4 space-y-3">
@@ -672,10 +672,10 @@ Explore the market's wealth segments, fund-management landscape, competitive pos
             <input type="hidden" name="exp_image_token" id="exp_image_token" value="" />
             <p id="exp_image_status" class="text-xs text-gray-500">Upload all three images. PNG, JPEG, WebP and AVIF files are supported.</p>
             <div class="grid gap-3 grid-cols-1 md:grid-cols-3">
-              {% for slot, label, note, ratio in [("hero", "1. Interview hero", "Minimum 600 x 340", "7 / 4"), ("portrait", "2. Expert portrait", "Minimum 400 x 180", "15 / 7"), ("report", "3. Report image", "Minimum 400 x 300", "13 / 10")] %}
+              {% for slot, label, note, ratio in [("hero", "1. Interview hero", "Minimum 600 x 340", "7 / 4"), ("portrait", "2. Expert portrait", "Minimum 400 x 450 · portrait", "1180 / 1333"), ("report", "3. Report image", "Minimum 400 x 300", "13 / 10")] %}
               <div class="rounded-lg border border-gray-200 bg-white p-2 text-center">
                 <div class="bg-gray-100 rounded overflow-hidden flex items-center justify-center" style="aspect-ratio: {{ ratio }}">
-                  <img id="exp_img_{{ slot }}" alt="" class="hidden w-full h-full object-cover" />
+                  <img id="exp_img_{{ slot }}" alt="" class="hidden w-full h-full {% if slot == 'portrait' %}object-contain bg-[#f3f7fb]{% else %}object-cover{% endif %}" />
                   <span id="exp_ph_{{ slot }}" class="text-xs text-gray-400">{{ label }}</span>
                 </div>
                 <p class="mt-2 text-[11px] text-gray-400">{{ note }}</p>
