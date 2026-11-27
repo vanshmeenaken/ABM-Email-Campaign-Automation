@@ -1,10 +1,11 @@
+import base64
 import os
 import re
 import unittest
 from io import BytesIO
 from unittest.mock import patch
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 os.environ["SKIP_BACKGROUND_WORKERS"] = "1"
@@ -20,6 +21,7 @@ from newsletter_expert import (
     IMAGE_FILES,
     SLOT_SIZES,
     expert_content,
+    expert_icon_images,
     prepare_expert_image,
     render_expert_newsletter,
     resolved_expert_links,
@@ -108,6 +110,24 @@ class ExpertNewsletterTests(unittest.TestCase):
             self.assertIn(f"cid:{filename}", html)
         self.assertNotIn("Manage Preferences", html)
 
+    def test_takeaway_icons_have_email_safe_padding(self):
+        icons = expert_icon_images()
+        for encoded in icons.values():
+            with Image.open(BytesIO(base64.b64decode(encoded))) as icon:
+                self.assertEqual((60, 52), icon.size)
+                for point in ((0, 0), (59, 0), (0, 51), (59, 51)):
+                    self.assertTrue(all(channel > 245 for channel in icon.getpixel(point)))
+
+        with Image.open(
+            BytesIO(base64.b64decode(icons[ICON_FILES["localisation"]]))
+        ) as localisation:
+            dark = localisation.convert("L").point(lambda pixel: 255 if pixel < 100 else 0)
+            left, top, right, bottom = dark.getbbox()
+            self.assertGreaterEqual(left, 5)
+            self.assertGreaterEqual(top, 5)
+            self.assertLessEqual(right, 55)
+            self.assertLessEqual(bottom, 47)
+
     def test_hero_image_height_adapts_to_copy(self):
         form = complete_form()
         form["exp_hero_body"] = "Short summary."
@@ -120,7 +140,7 @@ class ExpertNewsletterTests(unittest.TestCase):
         long_height = int(re.search(pattern, long_html).group(1))
         self.assertGreater(long_height, short_height)
         self.assertGreaterEqual(short_height, 230)
-        self.assertLessEqual(long_height, 390)
+        self.assertLessEqual(long_height, 410)
 
     def test_links_append_utms_without_overwriting_existing_source(self):
         form = complete_form()
@@ -143,23 +163,36 @@ class ExpertNewsletterTests(unittest.TestCase):
                 self.assertEqual(SLOT_SIZES[slot], output.size)
                 self.assertEqual("JPEG", output.format)
 
-    def test_transparent_portrait_is_contained_on_pale_background(self):
+    def test_transparent_portrait_is_face_focused_on_pale_background(self):
         portrait = Image.new("RGBA", (500, 600), (0, 0, 0, 0))
-        for x in range(120, 380):
-            for y in range(20, 600):
-                portrait.putpixel((x, y), (20, 40, 80, 255))
+        ImageDraw.Draw(portrait).ellipse((120, 20, 380, 600), fill=(20, 40, 80, 255))
         upload = BytesIO()
         portrait.save(upload, "PNG")
 
         result = prepare_expert_image("portrait", upload.getvalue())
         with Image.open(BytesIO(result)) as output:
-            self.assertEqual((472, 533), output.size)
+            self.assertEqual((472, 300), output.size)
             # Transparent space is composited onto the template background,
             # not converted into a black rectangle.
             red, green, blue = output.getpixel((0, 0))
             self.assertGreater(red, 220)
             self.assertGreater(green, 220)
             self.assertGreater(blue, 220)
+
+    def test_expert_sections_keep_deliberate_content_spacing(self):
+        html = render_expert_newsletter(complete_form(), "cid", {})
+        self.assertIn('height="15" style="height:15px;font-size:0;line-height:0;"', html)
+        self.assertIn('height="13" style="height:13px;font-size:0;line-height:0;"', html)
+        self.assertIn('height="18" style="height:18px;font-size:0;line-height:0;"', html)
+        self.assertIn('width="200" height="127"', html)
+        self.assertGreaterEqual(html.count('padding:0 0 14px 0;background-color:#f3f7fb;'), 2)
+        self.assertIn('padding:0 0 18px 0;background-color:#f3f7fb;', html)
+        self.assertIn(
+            'border="0" bgcolor="#f3f7fb" style="background-color:#f3f7fb;"', html
+        )
+        self.assertGreaterEqual(html.count('bgcolor="#f3f7fb"'), 7)
+        self.assertNotIn('<tr bgcolor="#f3f7fb"', html)
+        self.assertIn('width="320" valign="middle" style="padding:0 16px 0 20px;"', html)
 
     def test_dashboard_exposes_expert_builder_and_three_uploads(self):
         response = self.client.get("/send")

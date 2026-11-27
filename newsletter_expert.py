@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageOps
 DEFAULT_URL = "https://www.kenresearch.com"
 CANVAS_WIDTH = 720
 EXPERT_SLOTS = ("hero", "portrait", "report")
-SLOT_SIZES = {"hero": (840, 480), "portrait": (472, 533), "report": (520, 400)}
+SLOT_SIZES = {"hero": (840, 480), "portrait": (472, 300), "report": (520, 400)}
 IMAGE_FILES = {
     "hero": "expert-desk-hero.jpg",
     "portrait": "expert-desk-portrait.jpg",
@@ -117,9 +117,64 @@ def resolved_expert_links(content):
     }
 
 
+def _complete_localisation_icon():
+    """Draw a complete, padded coin-stack mark to replace the cropped source."""
+    scale = 4
+    canvas = Image.new("RGB", (60 * scale, 52 * scale), (255, 255, 255))
+    draw = ImageDraw.Draw(canvas)
+
+    def stack(x, top, width, levels):
+        x *= scale
+        top *= scale
+        width *= scale
+        ellipse_height = 7 * scale
+        level_step = 5 * scale
+        stroke = 2 * scale
+        bottom = top + ((levels - 1) * level_step)
+        bounds = (x, top, x + width, top + ellipse_height)
+        draw.ellipse(bounds, outline=(17, 17, 17), width=stroke)
+        draw.line(
+            (x, top + ellipse_height // 2, x, bottom + ellipse_height // 2),
+            fill=(17, 17, 17), width=stroke,
+        )
+        draw.line(
+            (x + width, top + ellipse_height // 2,
+             x + width, bottom + ellipse_height // 2),
+            fill=(17, 17, 17), width=stroke,
+        )
+        for level in range(1, levels):
+            y = top + (level * level_step)
+            draw.arc(
+                (x, y, x + width, y + ellipse_height),
+                0, 180, fill=(17, 17, 17), width=stroke,
+            )
+        draw.arc(
+            (x, bottom, x + width, bottom + ellipse_height),
+            0, 180, fill=(17, 17, 17), width=stroke,
+        )
+
+    stack(7, 29, 15, 2)
+    stack(21, 22, 16, 3)
+    stack(36, 13, 17, 4)
+    return canvas.resize((60, 52), Image.Resampling.LANCZOS)
+
+
 def expert_icon_images():
-    """Return the approved takeaway icons as attachment-ready base64 JPEGs."""
-    return dict(ICON_IMAGES_B64)
+    """Return approved takeaway icons with an email-safe white padding boundary."""
+    padded = {}
+    for filename, encoded in ICON_IMAGES_B64.items():
+        if filename == ICON_FILES["localisation"]:
+            canvas = _complete_localisation_icon()
+        else:
+            source = Image.open(BytesIO(base64.b64decode(encoded))).convert("RGB")
+            canvas = Image.new("RGB", (60, 52), (255, 255, 255))
+            left = (canvas.width - source.width) // 2
+            top = (canvas.height - source.height) // 2
+            canvas.paste(source, (left, top))
+        output = BytesIO()
+        canvas.save(output, "JPEG", quality=94, optimize=True)
+        padded[filename] = base64.b64encode(output.getvalue()).decode("ascii")
+    return padded
 
 
 def validate_expert_content(content):
@@ -183,19 +238,20 @@ def prepare_expert_image(slot, raw, max_bytes=12 * 1024 * 1024):
             raise ValueError("The uploaded image dimensions are too large.")
         target_width, target_height = SLOT_SIZES[slot]
         if slot == "portrait":
-            # Keep a tall portrait intact instead of forcing it through the
-            # landscape crop that was used by the previous image slot.
+            # Use a top-anchored crop so the expert's face and upper torso stay
+            # visible while the lower body no longer makes this section tall.
             source = source.convert("RGBA")
             alpha_bounds = source.getchannel("A").getbbox()
             if alpha_bounds:
                 source = source.crop(alpha_bounds)
-            source = ImageOps.contain(
-                source, (target_width, target_height), Image.Resampling.LANCZOS
+            source = ImageOps.fit(
+                source,
+                (target_width, target_height),
+                Image.Resampling.LANCZOS,
+                centering=(0.5, 0.0),
             )
             canvas = Image.new("RGBA", (target_width, target_height), (243, 247, 251, 255))
-            left = (target_width - source.width) // 2
-            top = target_height - source.height
-            canvas.alpha_composite(source, (left, top))
+            canvas.alpha_composite(source, (0, 0))
             source = canvas.convert("RGB")
         else:
             source = source.convert("RGB")
@@ -257,10 +313,13 @@ def _wrapped_line_count(value, line_units):
 
 def _hero_height(content):
     """Keep the hero photo aligned with variable dashboard copy."""
-    title_lines = _wrapped_line_count(content["hero_title"], 30)
-    body_lines = _wrapped_line_count(content["hero_body"], 42)
-    estimated = 105 + (title_lines * 27) + (body_lines * 15)
-    return max(230, min(390, estimated))
+    title_lines = _wrapped_line_count(content["hero_title"], 27)
+    body_lines = _wrapped_line_count(content["hero_body"], 50)
+    # The copy table is vertically centred beside the photo. Its fixed rows
+    # account for the label, spacers and CTA; a small allowance provides equal
+    # breathing room above and below without leaving a large gap after the CTA.
+    estimated = 118 + (title_lines * 26) + (body_lines * 18)
+    return max(245, min(410, estimated))
 
 
 def render_expert_newsletter(form, asset_base_url="", image_src=None):
@@ -273,10 +332,12 @@ def render_expert_newsletter(form, asset_base_url="", image_src=None):
         base = (asset_base_url or "").strip()
         return f"cid:{filename}" if base.lower() == "cid" else f"{base.rstrip('/')}/assets/newsletter/{filename}"
 
+    padded_icons = expert_icon_images()
+
     def icon_asset(filename):
         if (asset_base_url or "").strip().lower() == "cid":
             return f"cid:{filename}"
-        return f"data:image/jpeg;base64,{ICON_IMAGES_B64[filename]}"
+        return f"data:image/jpeg;base64,{padded_icons[filename]}"
 
     logo = asset("ken-research-logo-color.png")
     takeaways = ""
@@ -284,10 +345,27 @@ def render_expert_newsletter(form, asset_base_url="", image_src=None):
     for index in range(1, 4):
         divider = "border-left:1px solid #b9c5d9;" if index > 1 else ""
         takeaways += f'''<td class="exp-stack" width="33.33%" align="center" valign="top" style="padding:10px 24px 18px;{divider}">
-          <img src="{icon_asset(icons[index - 1])}" width="48" height="40" alt="" style="display:block;width:48px;height:40px;margin:0 auto;border:0;">
+          <img src="{icon_asset(icons[index - 1])}" width="52" height="45" alt="" style="display:block;width:52px;height:45px;margin:0 auto;border:0;">
           <div style="padding-top:8px;font-family:Georgia,'Times New Roman',serif;font-size:17px;line-height:21px;font-weight:700;color:{NAVY};">{_text(content[f'takeaway{index}_title'])}</div>
           <div style="padding-top:11px;font-family:Arial,sans-serif;font-size:12px;line-height:18px;color:{GREY};">{_text(content[f'takeaway{index}_body'])}</div>
         </td>'''
+
+    hero_copy = f'''<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr><td style="font-family:Arial,sans-serif;font-size:10px;line-height:12px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:{NAVY};"><span style="display:inline-block;width:28px;border-top:3px solid {RED};font-size:0;line-height:0;vertical-align:middle;">&nbsp;</span>&nbsp;&nbsp;{_text(content['hero_label'])}</td></tr>
+      <tr><td height="15" style="height:15px;font-size:0;line-height:0;">&nbsp;</td></tr>
+      <tr><td style="font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:26px;font-weight:700;color:{NAVY};">{_text(content['hero_title'])}</td></tr>
+      <tr><td height="13" style="height:13px;font-size:0;line-height:0;">&nbsp;</td></tr>
+      <tr><td style="font-family:Arial,sans-serif;font-size:12px;line-height:18px;color:{GREY};">{_text(content['hero_body'])}</td></tr>
+      <tr><td height="18" style="height:18px;font-size:0;line-height:0;">&nbsp;</td></tr>
+      <tr><td><table role="presentation" width="270" cellpadding="0" cellspacing="0" border="0"><tr><td height="36" align="center" bgcolor="{RED}" style="height:36px;border-radius:5px;"><a href="{_url(links['Expert interview'])}" style="display:block;font-family:Arial,sans-serif;font-size:13px;line-height:36px;font-weight:700;color:#fff;text-decoration:none;">{_text(content['hero_cta_text'])}&nbsp;&nbsp;&#8594;</a></td></tr></table></td></tr>
+    </table>'''
+
+    report_copy = f'''<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{PALE}" style="background-color:{PALE};">
+      <tr><td bgcolor="{PALE}" style="padding:0 0 14px 0;background-color:{PALE};font-family:Arial,sans-serif;font-size:10px;line-height:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:{NAVY};">{_text(content['report_label'])}</td></tr>
+      <tr><td bgcolor="{PALE}" style="padding:0 0 14px 0;background-color:{PALE};font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:27px;font-weight:700;color:{NAVY};">{_text(content['report_title'])}</td></tr>
+      <tr><td bgcolor="{PALE}" style="padding:0 0 18px 0;background-color:{PALE};font-family:Arial,sans-serif;font-size:11.5px;line-height:18px;color:{GREY};">{_text(content['report_body'])}</td></tr>
+      <tr><td bgcolor="{PALE}" style="background-color:{PALE};"><a href="{_url(links['Featured intelligence'])}" style="font-family:Arial,sans-serif;font-size:12px;line-height:16px;font-weight:700;color:{RED};text-decoration:underline;">{_text(content['report_cta_text'])}&nbsp;&nbsp;&#8594;</a></td></tr>
+    </table>'''
 
     return f'''<div style="display:none;font-size:1px;color:#fff;max-height:0;overflow:hidden;">{_text(content['hero_title'])}</div>
 <style>@media only screen and (max-width:600px){{.exp-wrap{{width:100%!important}}.exp-stack{{display:block!important;width:100%!important;box-sizing:border-box!important}}.exp-img{{width:100%!important;height:auto!important}}}}</style>
@@ -298,18 +376,18 @@ def render_expert_newsletter(form, asset_base_url="", image_src=None):
     <td width="1" bgcolor="{NAVY}" style="width:1px;"></td><td align="right" valign="middle" style="padding-left:16px;"><div style="font-family:Arial,sans-serif;font-size:18px;line-height:20px;font-weight:700;letter-spacing:2.5px;color:{NAVY};text-transform:uppercase;">{_text(content['section_label'])}</div><div style="padding-top:5px;font-family:Arial,sans-serif;font-size:11px;color:{NAVY};text-transform:uppercase;">{_text(content['issue_label'])}</div></td>
   </tr></table></td></tr>
   <tr><td><table role="presentation" width="720" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;"><tr>
-    <td class="exp-stack" width="320" valign="top" style="padding:17px 13px 13px 18px;"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:{NAVY};"><span style="display:inline-block;width:28px;border-top:3px solid {RED};font-size:0;line-height:0;vertical-align:middle;">&nbsp;</span>&nbsp;&nbsp;{_text(content['hero_label'])}</div><div style="padding-top:10px;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:23px;font-weight:700;color:{NAVY};">{_text(content['hero_title'])}</div><div style="padding:9px 0 13px;font-family:Arial,sans-serif;font-size:12px;line-height:15px;color:{GREY};">{_text(content['hero_body'])}</div><table role="presentation" width="270" cellpadding="0" cellspacing="0"><tr><td height="36" align="center" bgcolor="{RED}" style="height:36px;border-radius:5px;"><a href="{_url(links['Expert interview'])}" style="display:block;font-family:Arial,sans-serif;font-size:13px;line-height:36px;font-weight:700;color:#fff;text-decoration:none;">{_text(content['hero_cta_text'])}&nbsp;&nbsp;&#8594;</a></td></tr></table></td>
+    <td class="exp-stack" width="320" valign="middle" style="padding:0 16px 0 20px;">{hero_copy}</td>
     <td class="exp-stack" width="400" valign="top"><img class="exp-img" src="{image_src.get('hero','')}" width="400" height="{hero_height}" alt="Expert interview" style="display:block;width:400px;height:{hero_height}px;object-fit:cover;border:0;"></td>
   </tr></table></td></tr>
-  <tr><td bgcolor="{PALE}" style="padding:18px 22px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-    <td class="exp-stack" width="230" valign="bottom"><img class="exp-img" src="{image_src.get('portrait','')}" width="230" height="260" alt="{_text(content['expert_name'])}" style="display:block;width:230px;height:260px;object-fit:contain;border:0;"></td>
-    <td class="exp-stack" valign="middle" style="padding:18px 22px 18px 30px;"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:2.2px;text-transform:uppercase;color:{NAVY};"><span style="display:inline-block;height:14px;border-left:3px solid {RED};vertical-align:-3px;margin-right:16px;">&nbsp;</span>{_text(content['expert_label'])}</div><div style="padding-top:10px;font-family:Georgia,'Times New Roman',serif;font-size:28px;line-height:34px;font-weight:700;color:{NAVY};">{_text(content['expert_name'])}</div><div style="padding-top:6px;font-family:Arial,sans-serif;font-size:13px;line-height:20px;color:{GREY};">{_text(content['expert_role'])}<br><strong style="color:{NAVY};">{_text(content['expert_company'])}</strong></div></td>
+  <tr><td bgcolor="{PALE}" style="padding:10px 22px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+    <td class="exp-stack" width="205" valign="middle"><img class="exp-img" src="{image_src.get('portrait','')}" width="200" height="127" alt="{_text(content['expert_name'])}" style="display:block;width:200px;height:127px;object-fit:cover;object-position:center top;border:0;"></td>
+    <td class="exp-stack" valign="middle" style="padding:6px 22px 6px 26px;"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:2.2px;text-transform:uppercase;color:{NAVY};"><span style="display:inline-block;height:14px;border-left:3px solid {RED};vertical-align:-3px;margin-right:16px;">&nbsp;</span>{_text(content['expert_label'])}</div><div style="padding-top:8px;font-family:Georgia,'Times New Roman',serif;font-size:28px;line-height:32px;font-weight:700;color:{NAVY};">{_text(content['expert_name'])}</div><div style="padding-top:5px;font-family:Arial,sans-serif;font-size:13px;line-height:18px;color:{GREY};">{_text(content['expert_role'])}<br><strong style="color:{NAVY};">{_text(content['expert_company'])}</strong></div></td>
   </tr></table></td></tr>
   <tr><td style="padding:22px 18px 10px;">{_section_heading(content['takeaways_label'])}</td></tr>
   <tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>{takeaways}</tr></table><div style="padding:2px 24px 20px;font-family:Arial,sans-serif;font-size:10px;line-height:15px;font-style:italic;color:{GREY};">{_text(content['takeaway_note'])}</div></td></tr>
   <tr><td style="padding:4px 18px 22px;"><table role="presentation" width="684" cellpadding="0" cellspacing="0" bgcolor="{PALE}" style="width:684px;background:{PALE};border-radius:6px;"><tr>
-    <td class="exp-stack" width="260" valign="top" style="padding:16px;"><img class="exp-img" src="{image_src.get('report','')}" width="235" height="180" alt="Featured market intelligence" style="display:block;width:235px;height:180px;object-fit:cover;border:0;"></td>
-    <td class="exp-stack" valign="top" style="padding:18px 22px 18px 8px;"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:{NAVY};">{_text(content['report_label'])}</div><div style="padding-top:9px;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:27px;font-weight:700;color:{NAVY};">{_text(content['report_title'])}</div><div style="padding:11px 0 13px;font-family:Arial,sans-serif;font-size:11.5px;line-height:18px;color:{GREY};">{_text(content['report_body'])}</div><a href="{_url(links['Featured intelligence'])}" style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:{RED};text-decoration:underline;">{_text(content['report_cta_text'])}&nbsp;&nbsp;&#8594;</a></td>
+    <td class="exp-stack" width="260" valign="middle" bgcolor="{PALE}" style="padding:16px;background-color:{PALE};"><img class="exp-img" src="{image_src.get('report','')}" width="235" height="190" alt="Featured market intelligence" style="display:block;width:235px;height:190px;object-fit:cover;border:0;"></td>
+    <td class="exp-stack" valign="top" bgcolor="{PALE}" style="padding:20px 22px 20px 8px;background-color:{PALE};">{report_copy}</td>
   </tr></table></td></tr>
   <tr><td style="padding:13px 16px 16px;border-top:1px solid {NAVY};" align="right"><a href="{_url(links['Contact Us'])}" style="font-family:Arial,sans-serif;font-size:11px;color:#222;text-decoration:none;">Contact Us</a><span style="color:#aaa;">&nbsp;&nbsp;|&nbsp;&nbsp;</span><a href="{_url(content['unsubscribe_url'])}" style="font-family:Arial,sans-serif;font-size:11px;color:#222;text-decoration:none;">Unsubscribe</a></td></tr>
 </table></td></tr></table>'''
